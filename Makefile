@@ -4,10 +4,8 @@ CFLAGS = -Wall -Iutils
 OBJDIR = build
 BINDIR = bin
 
-# Add the subdirectory for pre-assembler.c
 SRCS = assembler.c pre-assembler/pre-assembler.c utils/utils.c error-handler/error-handler.c
 
-# Map sources to object files inside build/ preserving folder structure
 OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 
 TARGET = $(BINDIR)/assembler
@@ -17,17 +15,14 @@ all: create_dirs $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) -o $@
 
-# Compile sources in root directory
 $(OBJDIR)/%.o: %.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile sources in pre-assembler subdirectory
 $(OBJDIR)/pre-assembler/%.o: pre-assembler/%.c
 	@mkdir -p $(OBJDIR)/pre-assembler
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile sources in utils subdirectory
 $(OBJDIR)/utils/%.o: utils/%.c
 	@mkdir -p $(OBJDIR)/utils
 	$(CC) $(CFLAGS) -c $< -o $@
