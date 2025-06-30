@@ -6,6 +6,6 @@ mcro whathell
     b   print
 mcroend
 
-mcro
+mcro test
     add r1, r2
 mcroend

@@ -1,1 +1,9 @@
-Found macro: whathell
+
+whathell:
+mov r0, #"Hello"
+b   print
+
+
+test:
+add r1, r2
+
