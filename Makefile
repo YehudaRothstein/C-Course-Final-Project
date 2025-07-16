@@ -4,7 +4,7 @@ CFLAGS = -Wall -Iutils
 OBJDIR = build
 BINDIR = bin
 
-SRCS = assembler.c pre-assembler/pre-assembler.c utils/utils.c error-handler/error-handler.c
+SRCS = assembler.c pre-assembler/pre-assembler.c pre-assembler/spread-macros.c utils/utils.c error-handler/error-handler.c
 
 OBJS = $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 
@@ -26,6 +26,11 @@ $(OBJDIR)/pre-assembler/%.o: pre-assembler/%.c
 $(OBJDIR)/utils/%.o: utils/%.c
 	@mkdir -p $(OBJDIR)/utils
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/pre-assembler/spread-macros.o: pre-assembler/spread-macros.c
+	@mkdir -p $(OBJDIR)/pre-assembler
+	$(CC) $(CFLAGS) -c $< -o $@
+
 
 $(OBJDIR)/error-handler/%.o: error-handler/%.c
 	@mkdir -p $(OBJDIR)/error-handler

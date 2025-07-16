@@ -4,9 +4,11 @@
 #include <ctype.h>
 #include "../utils/utils.h"
 #include "pre-assembler.h"
+#include "spread-macros.h"
 #include "../error-handler/error-handler.h"
 
 #define LINE_SIZE 256
+#define MAX_MACROS 100
 #define MAX_MACRO_NAME 100
 #define MAX_MACRO_CONTENT 8192
 
@@ -27,8 +29,11 @@ int runPreAssembler(const char *inputPath, const char *outputPath) {
 
     int result = processLines(inputFile, outputFile);
 
+
     fclose(inputFile);
     fclose(outputFile);
+
+    spreadMacros(inputPath, outputPath);
 
     return result;
 }
@@ -81,7 +86,6 @@ static int processLines(FILE *inputFile, FILE *outputFile) {
 
 static int handleLine(char *line, int *inMacro, char *macroName, char *macroContent, int lineNumber) {
     char *trimmed = ltrim(line);
-    printf("🔍 Line %d: %s", lineNumber, trimmed);
 
     if (!(*inMacro) && startsWithIgnoreCase(trimmed, "mcro") && isspace(trimmed[4])) {
         if (sscanf(trimmed + 4, "%s", macroName) == 1) {

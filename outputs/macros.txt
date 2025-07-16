@@ -1,9 +1,5 @@
 
-whathell:
-mov r0, #"Hello"
-b   print
-
-
-test:
-add r1, r2
+a_mc:
+mov M1[r3][r3],r3
+bne LOOP
 
