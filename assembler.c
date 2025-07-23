@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "pre-assembler/pre-assembler.h"
+#include "first-run/first-run.h"
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -17,6 +18,17 @@ int main(int argc, char *argv[]) {
         return result;
     }
 
+    // Spread macros (creates .am file)
+    // spreadMacros(inputFile, outputFile); // If not already called in runPreAssembler
+
+    // Run first pass on the .am file
+    char amFile[256];
+    snprintf(amFile, sizeof(amFile), "%s.am", inputFile);
+    int firstPassResult = exe_first_pass(amFile);
+    if (firstPassResult != 0) {
+        printf("First pass failed.\n");
+        return firstPassResult;
+    }
 
     return 0;
 }

@@ -58,6 +58,10 @@
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "files.associations": {
     "utils.h": "c",
-    "error-handler.h": "c"
+    "error-handler.h": "c",
+    "code_conv.h": "c",
+    "code_conversion.h": "c",
+    "label_table.h": "c",
+    "data_conv.h": "c"
   }
 }
