@@ -2,92 +2,166 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
-
-// Helper: count extra words for operands based on addressing mode
-// Returns the number of extra words for a single operand
-int operand_extra_words(const char *operand) {
-    if (!operand) return 0;
-    // Immediate addressing: #number
-    if (operand[0] == '#') return 1;
-    // Matrix addressing: label[rX][rY]
-    const char *lbracket = strchr(operand, '[');
-    if (lbracket && strchr(lbracket+1, '[')) return 2;
-    // Register direct: r0-r7 (but if both operands are registers, only 1 extra word for both)
-    if (operand[0] == 'r' && operand[1] >= '0' && operand[1] <= '7' && operand[2] == '\0') return 1;
-    // Direct addressing (label)
-    return 1;
-}
-
-// Helper: count total words for an instruction (opcode + operands)
-#include "code_conversion.h" // For OpcodeInfo
-int instruction_word_count(const OpcodeInfo *opinfo, const char *operands) {
-    if (!opinfo) return 1;
-    int count = 1; // opcode word
-    if (opinfo->num_operands == 0) return count;
-    // Split operands
-    char ops[128];
-    if (operands) strncpy(ops, operands, 127); else ops[0] = '\0';
-    ops[127] = '\0';
-    char *op1 = NULL, *op2 = NULL;
-    char *comma = strchr(ops, ',');
-    if (comma) {
-        *comma = '\0';
-        op1 = ops;
-        op2 = comma + 1;
-        while (*op2 == ' ' || *op2 == '\t') op2++;
-    } else {
-        op1 = ops;
-    }
-    if (opinfo->num_operands == 2) {
-        int w1 = operand_extra_words(op1);
-        int w2 = operand_extra_words(op2);
-        // If both operands are registers, only 1 extra word
-        if (w1 == 1 && w2 == 1 && op1[0] == 'r' && op2[0] == 'r')
-            count += 1;
-        else
-            count += w1 + w2;
-    } else if (opinfo->num_operands == 1) {
-        count += operand_extra_words(op1);
-    }
-    return count;
-}
-#include <ctype.h>
-#include "label_table.h"
-// Print the symbol table after the first pass
-void print_symbol_table(Label *label_table, int label_table_line);
-#include <stddef.h>
-#include <string.h>
-#include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
-
+#include <ctype.h>
 #include "utils.h"
 #include "error-handler.h"
 #include "label_table.h"
 #include "other_table.h"
 #include "data_conv.h"
 #include "code_conversion.h"
-#include <stddef.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include "memory_map.h"
+#include "memory_map_data.h"
 
+void to_special_base4_str(unsigned short value, char *out);
+// --- Minimal implementations for register/matrix helpers ---
+int regnum(const char *reg) {
+    // Expects reg like "r0" to "r7"
+    if (reg && reg[0] == 'r' && reg[1] >= '0' && reg[1] <= '7' && reg[2] == '\0')
+        return reg[1] - '0';
+    return 0;
+}
 
+int mat_reg(const char *mat, int which) {
+    // Expects mat like "M1[r2][r7]", which=0 for row, 1 for col
+    const char *p = mat;
+    int found = 0;
+    while (*p) {
+        if (*p == '[') {
+            if (which == found) {
+                p++;
+                if (*p == 'r' && p[1] >= '0' && p[1] <= '7')
+                    return p[1] - '0';
+            }
+            found++;
+        }
+        p++;
+    }
+    return 0;
+}
+
+void mat_label(const char *mat, char *out) {
+    // Extracts label before first '['
+    const char *p = strchr(mat, '[');
+    if (!p) { strcpy(out, mat); return; }
+    size_t len = p - mat;
+    strncpy(out, mat, len);
+    out[len] = '\0';
+}
+// Forward declarations for register/matrix helpers
+int regnum(const char *reg);
+int mat_reg(const char *mat, int which);
+void mat_label(const char *mat, char *out);
+// --- data_word struct definition (for data image) ---
 typedef struct {
     unsigned short value;
-    int are;         // 0=A, 1=R, 2=E
-    int translated;  // 1 if translated, 0 if not
-} code_conv;
+    int src_line;
+} data_word;
 
-// Print the symbol table after the first pass (implementation)
-void print_symbol_table(Label *label_table, int label_table_line) {
-    printf("name | id (ic\\dc) | type\n");
-    for (int i = 0; i < label_table_line; i++) {
-        const char *type = label_table[i].is_code ? "code" :
-                           (label_table[i].is_data ? "data" :
-                           (label_table[i].is_extern ? "extern" : "?"));
-        printf("%s %d %s\n", label_table[i].name, label_table[i].address, type);
+// --- Project-wide macro definitions (define here if not in headers) ---
+#ifndef MAX_LINE_LENGTH
+#define MAX_LINE_LENGTH 256
+#endif
+#ifndef IC_INIT_VALUE
+#define IC_INIT_VALUE 100
+#endif
+#ifndef CODE_OUT_FILE
+#define CODE_OUT_FILE "outputs/code.txt"
+#endif
+
+
+
+
+
+// --- DataDirective struct definition (for .data/.string/.mat collection) ---
+typedef struct {
+    char type[8]; // .data, .string, .mat
+    char label[32];
+    char operands[MAX_LINE_LENGTH];
+    int src_line;
+} DataDirective;
+
+// Prototype for second pass function (now in second-run.h)
+#include "second-run.h"
+
+// Prototype for write_code_file
+void write_code_file(const char *out_filename, code_conv *code, int code_count, data_word *data_image, int data_count);
+
+// Implementation of write_code_file
+// Outputs the code and data images to the object file, including ARE field per code word
+void write_code_file(const char *out_filename, code_conv *code, int code_count, data_word *data_image, int data_count) {
+    FILE *fp = fopen(out_filename, "w");
+    if (!fp) {
+        printf("[ERROR] Cannot open output file: %s\n", out_filename);
+        return;
     }
+    // Print header: code size and data size
+    fprintf(fp, "%d %d\n", code_count, data_count);
+
+    // Find the maximum address to print (code or data)
+    int max_addr = code_count;
+    if ((int)data_memory_map.size > 0 && (IC_INIT_VALUE + code_count + (int)data_memory_map.size - 1 - IC_INIT_VALUE > max_addr)) {
+        max_addr = (IC_INIT_VALUE + code_count + (int)data_memory_map.size - 1) - IC_INIT_VALUE;
+    }
+
+    // Print each address: left is data (8 bits, from memory map), right is code (10 bits, from code array)
+    for (int i = 0; i <= max_addr; i++) {
+        int addr = IC_INIT_VALUE + i;
+        // Data: from memory map, 8 bits only
+        unsigned char data_val = 0;
+        int data_used = 0;
+        if (i - code_count >= 0 && memory_map_is_used(&data_memory_map, i - code_count)) {
+            data_val = (unsigned char)(memory_map_get(&data_memory_map, i - code_count) & 0xFF); // 8 bits
+            data_used = 1;
+        }
+        // Code: from code array, 10 bits
+        unsigned short code_val = 0;
+        int code_used = 0;
+        if (i < code_count) {
+            code_val = code[i].value & 0x3FF;
+            code_used = 1;
+        }
+        // Only print if code or data is present
+        if (code_used || data_used) {
+            // Print address in base 4 (5 digits)
+            char addr_str[6];
+            to_special_base4_str((unsigned short)addr, addr_str);
+            // Data as 8 bits binary
+            char data_bin[9];
+            for (int b = 7; b >= 0; b--) data_bin[7-b] = ((data_val >> b) & 1) ? '1' : '0';
+            data_bin[8] = '\0';
+            // Code as 10 bits binary
+            char code_bin[11];
+            for (int b = 9; b >= 0; b--) code_bin[9-b] = ((code_val >> b) & 1) ? '1' : '0';
+            code_bin[10] = '\0';
+            // Print: addr data(8b) code(10b)
+            fprintf(fp, "%s %s %s\n", addr_str, data_bin, code_bin);
+        }
+    }
+    fclose(fp);
 }
+
+// Forward declaration for operand_extra_words
+int operand_extra_words(const char *op);
+
+
+// ...existing code...
+// Print the symbol table after the first pass (linked list version)
+int print_symbol_table(LabelNode *head) {
+    printf("name | id (ic\\dc) | type\n");
+    LabelNode *curr = head;
+    while (curr) {
+        const char *type = curr->is_code ? "code" :
+                           (curr->is_data ? "data" :
+                           (curr->is_extern ? "extern" : "?"));
+        printf("%s %d %s\n", curr->name, curr->address, type);
+        curr = curr->next;
+    }
+    return 0;
+}
+
+// ...existing code...
 
 // --- Function prototypes for helpers ---
 int legal_label_decl(const char *label, int *error_code);
@@ -95,52 +169,152 @@ void print_external_error(int error_code, const char *file_name, int line_num);
 int process_data(const char *operands, data_conv **data);
 int process_string(const char *operands, data_conv **data);
 void add_to_other_table(other_table **table, int *count, const char *operand);
-int check_each_label_once(Label *label_table, int label_table_line, const char *file_name);
-void exe_second_pass(const char *file_name, Label *label_table, int IC, int DC, int label_table_line,
-                     int externs_count, int entries_count, code_conv *code, data_conv *data,
-                     other_table *externs, other_table *entries, int error_found);
-void free_all_memory(code_conv *code, Label *label_table, other_table *entries, other_table *externs,
-                     int code_size, int label_table_line, int entries_count, int externs_count);
+// Linked list label table helpers
+// (check_each_label_once, exe_second_pass, free_all_memory are now obsolete or need to be reimplemented for linked list)
 
-
-#define IC_INIT_VALUE 100
-#define MAX_LINE_LENGTH 81
-
-#define CODE_OUT_FILE "outputs/code.txt"
-
-
-
-
-
-void write_code_file(const char *out_filename, code_conv *code, int code_count) {
-    FILE *out = fopen(out_filename, "w");
-    if (!out) return;
-    for (int i = 0; i < code_count; i++) {
-        char bin[15];
-        if (code[i].translated) {
-            to_binary_str(code[i].value, bin, 14);
-            fprintf(out, "%s %c\n", bin, get_are_char(code[i].are));
-        } else {
-            fprintf(out, "? ?\n");
-        }
+// Helper: convert a 10-bit value to the special base-4 string (5 chars, a-d)
+void to_special_base4_str(unsigned short value, char *out) {
+    // Each digit: 2 bits, 5 digits, leftmost is most significant
+    for (int i = 4; i >= 0; i--) {
+        int digit = (value >> (i * 2)) & 0x3;
+        out[4 - i] = "abcd"[digit];
     }
-    fclose(out);
+    out[5] = '\0';
 }
 
+// ...existing code...
+
+
 int exe_first_pass(char *file_name) {
+    // After the main loop, process all collected data directives in order
+
+    // (Move this block after all variable declarations, so all variables are in scope)
     char line_buf[MAX_LINE_LENGTH];
     int IC = IC_INIT_VALUE, DC = 0;
     int error_found = 0;
 
-    // Dynamic tables
-    Label *label_table = NULL;
-    int label_table_line = 0;
+    // Linked list label table
+    LabelNode *label_table_head = NULL;
     other_table *externs = NULL, *entries = NULL;
     int externs_count = 0, entries_count = 0;
     code_conv code[1024];
     int code_count = 0;
-    data_conv *data = NULL;
+    // Dynamic data image (heap)
+    data_word *data_image = NULL;
+    int data_count = 0;
+    memory_map_init(&data_memory_map);
+    // Collect data directives in order
+    DataDirective *data_directives = NULL;
+    int data_directives_count = 0;
     FILE *fp;
+
+    // After all declarations, process all collected data directives in order
+    DC = 0;
+    data_count = 0;
+    if (data_image) { free(data_image); data_image = NULL; }
+    for (int i = 0; i < data_directives_count; i++) {
+        DataDirective *dd = &data_directives[i];
+        if (strcmp(dd->type, ".data") == 0) {
+            if (dd->label[0]) {
+                insert_label(&label_table_head, dd->label, DC, 0, 1, 0);
+            }
+            // Parse comma-separated integers and store in data_image (dynamic)
+            const char *p = dd->operands;
+            char numbuf[32];
+            while (*p) {
+                while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+                if (!*p) break;
+                int j = 0;
+                if (*p == '+' || *p == '-') numbuf[j++] = *p++;
+                while (*p && isdigit((unsigned char)*p) && j < 30) numbuf[j++] = *p++;
+                numbuf[j] = '\0';
+                if (j == 0) break;
+                int val = atoi(numbuf);
+                data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
+                data_image[data_count].value = (unsigned short)(val & 0x3FF); // 10 bits
+                data_image[data_count].src_line = dd->src_line;
+                memory_map_set(&data_memory_map, data_count, (unsigned short)(val & 0x3FF));
+                data_count++;
+                DC++;
+            }
+        } else if (strcmp(dd->type, ".string") == 0) {
+            if (dd->label[0]) {
+                insert_label(&label_table_head, dd->label, DC, 0, 1, 0);
+            }
+            // Parse quoted string and store ASCII values in data_image (dynamic)
+            const char *start = strchr(dd->operands, '"');
+            if (start) {
+                start++;
+                const char *end = strchr(start, '"');
+                if (end) {
+                    for (const char *p = start; p < end; p++) {
+                        data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
+                        data_image[data_count].value = (unsigned short)((unsigned char)*p & 0x3FF);
+                        data_image[data_count].src_line = dd->src_line;
+                        memory_map_set(&data_memory_map, data_count, (unsigned short)((unsigned char)*p & 0x3FF));
+                        data_count++;
+                        DC++;
+                    }
+                    // Null terminator
+                    data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
+                    data_image[data_count].value = 0;
+                    data_image[data_count].src_line = dd->src_line;
+                    memory_map_set(&data_memory_map, data_count, 0);
+                    data_count++;
+                    DC++;
+                }
+            }
+        } else if (strcmp(dd->type, ".mat") == 0) {
+            if (dd->label[0]) {
+                insert_label(&label_table_head, dd->label, DC, 0, 1, 0);
+            }
+            // Parse matrix size and values
+            int rows = 0, cols = 0;
+            const char *p = dd->operands;
+            if (p && *p == '[') {
+                p++;
+                rows = atoi(p);
+                p = strchr(p, ']');
+                if (p && *(p+1) == '[') {
+                    p += 2;
+                    cols = atoi(p);
+                    p = strchr(p, ']');
+                    if (p) p++;
+                }
+            }
+            while (p && (*p == ' ' || *p == '\t' || *p == ',')) p++;
+            int total = rows * cols;
+            int mat_vals = 0;
+            char numbuf[32];
+            while (mat_vals < total && p && *p) {
+                while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+                if (!*p) break;
+                int j = 0;
+                if (*p == '+' || *p == '-') numbuf[j++] = *p++;
+                while (*p && isdigit((unsigned char)*p) && j < 30) numbuf[j++] = *p++;
+                numbuf[j] = '\0';
+                if (j == 0) break;
+                int val = atoi(numbuf);
+                data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
+                data_image[data_count].value = (unsigned short)(val & 0x3FF);
+                data_image[data_count].src_line = dd->src_line;
+                memory_map_set(&data_memory_map, data_count, (unsigned short)(val & 0x3FF));
+                data_count++;
+                DC++;
+                mat_vals++;
+            }
+            while (mat_vals < total) {
+                data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
+                data_image[data_count].value = 0;
+                data_image[data_count].src_line = dd->src_line;
+                memory_map_set(&data_memory_map, data_count, 0);
+                data_count++;
+                DC++;
+                mat_vals++;
+            }
+        }
+    }
+    if (data_directives) free(data_directives);
 
     printf("[LOG] Opening file: %s\n", file_name);
     fp = fopen(file_name, "r");
@@ -179,9 +353,9 @@ int exe_first_pass(char *file_name) {
             inst.opcode ? inst.opcode : "(null)",
             inst.operands ? inst.operands : "(null)");
 
+        // If no opcode, treat as empty line and skip (do not count as error)
         if (!inst.opcode) {
-            printf("[ERROR] Failed to parse opcode at line %d. Skipping line.\n", line_num);
-            error_found = 1;
+            printf("[LOG] No opcode at line %d (empty or whitespace line). Skipping.\n", line_num);
             free_inst_parts(&inst);
             continue;
         }
@@ -201,80 +375,56 @@ int exe_first_pass(char *file_name) {
 
         // Instruction line (.data/.string/.extern/.entry)
         if (is_instr(inst.opcode)) {
-            printf("[LOG] Found instruction '%s' at line %d\n", inst.opcode, line_num);
-            if (strcmp(inst.opcode, ".data") == 0) {
-                // Add label if exists
+            if (strcmp(inst.opcode, ".data") == 0 || strcmp(inst.opcode, ".string") == 0 || strcmp(inst.opcode, ".mat") == 0) {
+                // Collect directive for later processing
+                data_directives = realloc(data_directives, (data_directives_count + 1) * sizeof(DataDirective));
+                strncpy(data_directives[data_directives_count].type, inst.opcode, 7);
+                data_directives[data_directives_count].type[7] = '\0';
                 if (inst.label) {
-                    printf("[LOG] Allocating label_table for .data at line %d, size %d\n", line_num, label_table_line + 1);
-                    Label *new_table = realloc(label_table, (label_table_line + 1) * sizeof(Label));
-                    if (!new_table) {
-                        printf("[ERROR] Failed to allocate label_table for .data at line %d\n", line_num);
-                        exit(1);
-                    }
-                    label_table = new_table;
-                    strncpy(label_table[label_table_line].name, inst.label, 31);
-                    label_table[label_table_line].name[31] = '\0';
-                    label_table[label_table_line].address = DC;
-                    label_table[label_table_line].is_code = 0;
-                    label_table[label_table_line].is_data = 1;
-                    label_table[label_table_line].is_extern = 0;
-                    label_table[label_table_line].is_entry = 0;
-                    label_table_line++;
+                    strncpy(data_directives[data_directives_count].label, inst.label, 31);
+                    data_directives[data_directives_count].label[31] = '\0';
+                } else {
+                    data_directives[data_directives_count].label[0] = '\0';
                 }
-                printf("[LOG] Processing .data operands at line %d\n", line_num);
-                DC += process_data(inst.operands, &data);
-            } else if (strcmp(inst.opcode, ".string") == 0) {
-                if (inst.label) {
-                    printf("[LOG] Allocating label_table for .string at line %d, size %d\n", line_num, label_table_line + 1);
-                    Label *new_table = realloc(label_table, (label_table_line + 1) * sizeof(Label));
-                    if (!new_table) {
-                        printf("[ERROR] Failed to allocate label_table for .string at line %d\n", line_num);
-                        exit(1);
-                    }
-                    label_table = new_table;
-                    strncpy(label_table[label_table_line].name, inst.label, 31);
-                    label_table[label_table_line].name[31] = '\0';
-                    label_table[label_table_line].address = DC;
-                    label_table[label_table_line].is_code = 0;
-                    label_table[label_table_line].is_data = 1;
-                    label_table[label_table_line].is_extern = 0;
-                    label_table[label_table_line].is_entry = 0;
-                    label_table_line++;
+                if (inst.operands) {
+                    strncpy(data_directives[data_directives_count].operands, inst.operands, MAX_LINE_LENGTH-1);
+                    data_directives[data_directives_count].operands[MAX_LINE_LENGTH-1] = '\0';
+                } else {
+                    data_directives[data_directives_count].operands[0] = '\0';
                 }
-                printf("[LOG] Processing .string operands at line %d\n", line_num);
-                DC += process_string(inst.operands, &data);
+                data_directives[data_directives_count].src_line = line_num;
+                data_directives_count++;
             } else if (strcmp(inst.opcode, ".extern") == 0) {
-                printf("[LOG] Processing .extern at line %d\n", line_num);
                 add_to_other_table(&externs, &externs_count, inst.operands);
             } else if (strcmp(inst.opcode, ".entry") == 0) {
-                printf("[LOG] Processing .entry at line %d\n", line_num);
                 add_to_other_table(&entries, &entries_count, inst.operands);
-            } else if (strcmp(inst.opcode, ".mat") == 0) {
-                // TODO: handle .mat directive
             }
-        } else {
-            printf("[LOG] Found opcode '%s' at line %d\n", inst.opcode, line_num);
+        }
+        else {
+            // Real opcode
             const OpcodeInfo *opinfo = find_opcode(inst.opcode);
             if (!opinfo) {
                 printf("[ERROR] Unknown opcode '%s' at line %d\n", inst.opcode, line_num);
                 print_external_error(1, file_name, line_num);
                 error_found = 1;
-                // Add a code_conv entry with translated=0 for this line
                 code[code_count].translated = 0;
                 code_count++;
+                free_inst_parts(&inst);
                 continue;
             }
             // Validate number of operands
             int actual_operands = 0;
+            char ops[128];
+            ops[0] = '\0';
             if (inst.operands && strlen(inst.operands) > 0) {
-                // Count commas
-                const char *tmp = inst.operands;
+                strncpy(ops, inst.operands, 127);
+                ops[127] = '\0';
+                const char *tmp = ops;
                 int commas = 0;
                 while (*tmp) { if (*tmp == ',') commas++; tmp++; }
                 actual_operands = commas + 1;
-                // If only whitespace, treat as 0
                 int only_ws = 1;
-                for (const char *p = inst.operands; *p; p++) {
+                for (const char *p = ops; *p; p++) {
                     if (!isspace((unsigned char)*p) && *p != ',') { only_ws = 0; break; }
                 }
                 if (only_ws) actual_operands = 0;
@@ -287,221 +437,363 @@ int exe_first_pass(char *file_name) {
                 free_inst_parts(&inst);
                 continue;
             }
-            // If valid:
-            int words_for_inst = instruction_word_count(opinfo, inst.operands);
+            // Parse operands
+            char *op1 = NULL, *op2 = NULL;
+            char *comma = strchr(ops, ',');
+            if (comma) {
+                *comma = '\0';
+                op1 = ops;
+                op2 = comma + 1;
+                while (*op2 == ' ' || *op2 == '\t') op2++;
+            } else {
+                op1 = ops;
+            }
+            // Build first word: opcode, addressing modes, ARE=0 (A)
+            unsigned short word = 0;
+            word |= (opinfo->code & 0xF) << 6; // opcode: bits 6-9
+            int src_mode = 0, dst_mode = 0;
+            if (opinfo->num_operands == 2) {
+                // Source
+                if (op1[0] == '#') src_mode = 0;
+                else if (strchr(op1, '[') && strchr(strchr(op1, '[')+1, '[')) src_mode = 2;
+                else if (op1[0] == 'r' && op1[1] >= '0' && op1[1] <= '7' && op1[2] == '\0') src_mode = 3;
+                else src_mode = 1;
+                // Dest
+                if (op2[0] == '#') dst_mode = 0;
+                else if (strchr(op2, '[') && strchr(strchr(op2, '[')+1, '[')) dst_mode = 2;
+                else if (op2[0] == 'r' && op2[1] >= '0' && op2[1] <= '7' && op2[2] == '\0') dst_mode = 3;
+                else dst_mode = 1;
+                word |= (src_mode & 0x3) << 4; // bits 4-5
+                word |= (dst_mode & 0x3) << 2; // bits 2-3
+            } else if (opinfo->num_operands == 1) {
+                // Only dest
+                if (op1[0] == '#') dst_mode = 0;
+                else if (strchr(op1, '[') && strchr(strchr(op1, '[')+1, '[')) dst_mode = 2;
+                else if (op1[0] == 'r' && op1[1] >= '0' && op1[1] <= '7' && op1[2] == '\0') dst_mode = 3;
+                else dst_mode = 1;
+                word |= (dst_mode & 0x3) << 2;
+            }
+            // ARE bits (A=0, R=1, E=2) - for first word always 0 (A)
+            word |= 0; // bits 0-1
             if (inst.label) {
-                printf("[LOG] Allocating label_table for opcode at line %d, size %d\n", line_num, label_table_line + 1);
-                Label *new_table = realloc(label_table, (label_table_line + 1) * sizeof(Label));
-                if (!new_table) {
-                    printf("[ERROR] Failed to allocate label_table for opcode at line %d\n", line_num);
-                    exit(1);
+                insert_label(&label_table_head, inst.label, IC, 1, 0, 0);
+            }
+            code[code_count].value = word;
+            code[code_count].are = 0;
+            code[code_count].translated = 1;
+            code[code_count].src_line = line_num;
+            code_count++;
+            IC++;
+            // Encode extra words for operands
+            if (opinfo->num_operands == 2) {
+                // Matrix addressing: 2 extra words
+                if (src_mode == 2) {
+                    char matlbl[32]; mat_label(op1, matlbl);
+                    code[code_count].value = 0; // Will be filled in 2nd pass
+                    code[code_count].are = 1; // R (relocatable)
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                    unsigned short regword = 0;
+                    regword |= (mat_reg(op1, 0) & 0xF) << 6; // row reg
+                    regword |= (mat_reg(op1, 1) & 0xF) << 2; // col reg
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                } else if (src_mode == 0) {
+                    // Immediate
+                    int val = atoi(op1+1);
+                    code[code_count].value = (unsigned short)(val & 0x3FF);
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                } else if (src_mode == 3 && dst_mode == 3) {
+                    // Both registers, share a word
+                    unsigned short regword = 0;
+                    regword |= (regnum(op1) & 0xF) << 6;
+                    regword |= (regnum(op2) & 0xF) << 2;
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                } else if (src_mode == 3) {
+                    unsigned short regword = 0;
+                    regword |= (regnum(op1) & 0xF) << 6;
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code_count++;
+                    IC++;
+                } else if (src_mode == 1) {
+                    // Direct (label)
+                    code[code_count].value = 0; // Will be filled in 2nd pass
+                    code[code_count].are = 1; // R
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
                 }
-                label_table = new_table;
-                strncpy(label_table[label_table_line].name, inst.label, 31);
-                label_table[label_table_line].name[31] = '\0';
-                label_table[label_table_line].address = IC;
-                label_table[label_table_line].is_code = 1;
-                label_table[label_table_line].is_data = 0;
-                label_table[label_table_line].is_extern = 0;
-                label_table[label_table_line].is_entry = 0;
-                label_table_line++;
+                // Dest operand
+                if (dst_mode == 2) {
+                    char matlbl[32]; mat_label(op2, matlbl);
+                    code[code_count].value = 0; // Will be filled in 2nd pass
+                    code[code_count].are = 1;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                    unsigned short regword = 0;
+                    regword |= (mat_reg(op2, 0) & 0xF) << 6;
+                    regword |= (mat_reg(op2, 1) & 0xF) << 2;
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                } else if (dst_mode == 0) {
+                    int val = atoi(op2+1);
+                    code[code_count].value = (unsigned short)(val & 0x3FF);
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                } else if (!(src_mode == 3 && dst_mode == 3) && dst_mode == 3) {
+                    unsigned short regword = 0;
+                    regword |= (regnum(op2) & 0xF) << 2;
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                } else if (dst_mode == 1) {
+                    code[code_count].value = 0; // Will be filled in 2nd pass
+                    code[code_count].are = 1;
+                    code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code_count++;
+                    IC++;
+                }
+            } else if (opinfo->num_operands == 1) {
+                if (dst_mode == 2) {
+                    char matlbl[32]; mat_label(op1, matlbl);
+                    code[code_count].value = 0; // Will be filled in 2nd pass
+                    code[code_count].are = 1;
+                    code[code_count].translated = 1;
+                    code_count++;
+                    IC++;
+                    unsigned short regword = 0;
+                    regword |= (mat_reg(op1, 0) & 0xF) << 6;
+                    regword |= (mat_reg(op1, 1) & 0xF) << 2;
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code_count++;
+                    IC++;
+                } else if (dst_mode == 0) {
+                    int val = atoi(op1+1);
+                    code[code_count].value = (unsigned short)(val & 0x3FF);
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code_count++;
+                    IC++;
+                } else if (dst_mode == 3) {
+                    unsigned short regword = 0;
+                    regword |= (regnum(op1) & 0xF) << 2;
+                    code[code_count].value = regword;
+                    code[code_count].are = 0;
+                    code[code_count].translated = 1;
+                    code_count++;
+                    IC++;
+                } else if (dst_mode == 1) {
+                    code[code_count].value = 0; // Will be filled in 2nd pass
+                    code[code_count].are = 1;
+                    code[code_count].translated = 1;
+                    code_count++;
+                    IC++;
+                }
             }
-            printf("[LOG] Generating code word for opcode '%s' at line %d, words=%d\n", inst.opcode, line_num, words_for_inst);
-            for (int w = 0; w < words_for_inst; w++) {
-                unsigned short code_word = (w == 0) ? (opinfo->code << 10) : 0; // Only first word is opcode, rest are operand words (set to 0 for now)
-                int are = 0; // Set ARE as needed (0=A)
-                code[code_count].value = code_word;
-                code[code_count].are = are;
-                code[code_count].translated = 1;
-                code_count++;
-            }
-            IC += words_for_inst;
         }
         free_inst_parts(&inst);
     }
 
-    printf("[LOG] Finished reading file, closing file pointer\n");
     fclose(fp);
 
-    printf("[LOG] Updating data label addresses\n");
-    update_data_labels_address(label_table, label_table_line, IC);
-// Update data label addresses by adding final IC, so output matches assembler spec
+    update_data_labels_address(label_table_head);
 
-
-    printf("[LOG] Checking for duplicate labels\n");
-    if (!check_each_label_once(label_table, label_table_line, file_name)) {
+    if (!check_duplicate_labels(label_table_head)) {
         error_found = 1;
     }
 
-    printf("[LOG] Writing code output file\n");
-    write_code_file(CODE_OUT_FILE, code, code_count);
+    // --- Second pass: resolve all label addresses in code, mark externals, and output .ent/.ext files ---
+    // Get base filename for .ent/.ext output (without path and extension)
+    char basefile[128] = "outputs/code";
+    exe_second_pass(code, code_count, label_table_head, entries, entries_count, externs, externs_count, basefile);
 
-    printf("[LOG] Calling second pass\n");
-    exe_second_pass(file_name, label_table, IC, DC, label_table_line,
-                    externs_count, entries_count, code, data, externs, entries, error_found);
+    write_code_file(CODE_OUT_FILE, code, code_count, data_image, data_count);
 
-    // Print symbol table after first pass
-    print_symbol_table(label_table, label_table_line);
+    // Print the memory map for debugging/verification (addressing: cell + 100 + code_count)
+    printf("\n==== DATA MEMORY MAP (address = 100 + code_count + cell index) ====\n");
+    for (size_t i = 0; i < data_memory_map.size; ++i) {
+        if (data_memory_map.cells[i].used) {
+            size_t addr = IC_INIT_VALUE + code_count + i;
+            printf("%03zu: %04x (dec: %u)\n", addr, data_memory_map.cells[i].value, data_memory_map.cells[i].value);
+        }
+    }
 
-    printf("[LOG] Freeing all memory\n");
-    free_all_memory(code, label_table, entries, externs,
-                    IC - IC_INIT_VALUE, label_table_line, entries_count, externs_count);
+    print_symbol_table(label_table_head);
 
-    printf("[LOG] First pass complete, returning error_found=%d\n", error_found);
+    free_label_list(label_table_head);
+    if (entries) free(entries);
+    if (externs) free(externs);
+    if (data_image) free(data_image);
+    // 'code' is a static array, do not free
+
     return error_found;
 }
 
+// --- exe_second_pass implementation moved to second-run.c ---
+
 // --- Implementations for missing functions ---
-
-#include <ctype.h>
-
-int handle_allocation(other_table **externs, other_table **entries, code_conv *code, data_conv **data) {
-    *externs = NULL;
-    *entries = NULL;
-    *data = NULL;
-    // code is a static array, no allocation needed
-    return 0;
-}
-
-int is_reserved_word(const char *label) {
-    // Check opcode table
-    extern OpcodeInfo opcode_table[];
-    extern int num_opcodes;
-    for (int i = 0; i < num_opcodes; i++) {
-        if (strcmp(label, opcode_table[i].name) == 0)
-            return 1;
-    }
-    // Check register names
-    for (int i = 0; i < 8; i++) {
-        char reg[4];
-        sprintf(reg, "r%d", i);
-        if (strcmp(label, reg) == 0)
-            return 1;
-    }
-    // Check directives
-    const char *directives[] = {".data", ".string", ".mat", ".entry", ".extern"};
-    for (int i = 0; i < 5; i++) {
-        if (strcmp(label, directives[i]) == 0)
-            return 1;
-    }
-    return 0;
-}
-
+// Minimal stubs to resolve linker errors. Replace with real logic as needed.
 int legal_label_decl(const char *label, int *error_code) {
-    if (!label || !isalpha(label[0])) {
-        *error_code = 2; // Must start with letter
+    // Error codes:
+    // 1 = NULL or empty
+    // 2 = too long
+    // 3 = does not start with letter
+    // 4 = contains non-alphanumeric
+    // 5 = reserved word (opcode or instruction)
+    // 6 = register name
+    if (!label || !label[0]) {
+        if (error_code) *error_code = 1;
         return 0;
     }
-    if (strlen(label) > 30) {
-        *error_code = 3; // Too long
+    int len = strlen(label);
+    if (len > 30) {
+        if (error_code) *error_code = 2;
         return 0;
     }
-    if (is_reserved_word(label)) {
-        *error_code = 4; // Reserved word
+    if (!isalpha((unsigned char)label[0])) {
+        if (error_code) *error_code = 3;
         return 0;
     }
-    *error_code = 0;
+    for (int i = 1; i < len; i++) {
+        if (!isalnum((unsigned char)label[i])) {
+            if (error_code) *error_code = 4;
+            return 0;
+        }
+    }
+    // Check reserved words (opcodes and instructions)
+    if (find_opcode(label) != NULL || is_instr(label)) {
+        if (error_code) *error_code = 5;
+        return 0;
+    }
+    // Check register names: r0 to r7
+    if (len == 2 && label[0] == 'r' && label[1] >= '0' && label[1] <= '7') {
+        if (error_code) *error_code = 6;
+        return 0;
+    }
+    if (error_code) *error_code = 0;
     return 1;
 }
 
 void print_external_error(int error_code, const char *file_name, int line_num) {
+    const char *msg = NULL;
     switch (error_code) {
-        case 2:
-            printf("Error in %s at line %d: Label must start with a letter.\n", file_name, line_num);
-            break;
-        case 3:
-            printf("Error in %s at line %d: Label is too long (max 30 chars).\n", file_name, line_num);
-            break;
-        case 4:
-            printf("Error in %s at line %d: Label is a reserved word.\n", file_name, line_num);
-            break;
-        default:
-            printf("Error in %s at line %d: Invalid label.\n", file_name, line_num);
-            break;
+        case 1: msg = "Label is empty or NULL"; break;
+        case 2: msg = "Label is too long (max 30 chars)"; break;
+        case 3: msg = "Label must start with a letter"; break;
+        case 4: msg = "Label contains non-alphanumeric characters"; break;
+        case 5: msg = "Label is a reserved word (opcode/instruction)"; break;
+        case 6: msg = "Label is a register name (r0-r7)"; break;
+        default: msg = "Unknown label error"; break;
     }
+    printf("[ERROR] %s (file: %s, line: %d)\n", msg, file_name, line_num);
 }
 
 int process_data(const char *operands, data_conv **data) {
+    // Parse comma-separated integers, add to data_conv array if needed
+    if (!operands) return 0;
     int count = 0;
-    char *ops = strdup(operands);
-    char *token = strtok(ops, ",");
-    while (token) {
-        while (isspace((unsigned char)*token)) token++;
-        int value = atoi(token);
-        data_conv *new_data = realloc(*data, (count + 1) * sizeof(data_conv));
-        if (!new_data) {
-            free(ops);
-            return count;
+    const char *p = operands;
+    char numbuf[32];
+    while (*p) {
+        // Skip whitespace
+        while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+        if (!*p) break;
+        // Read number
+        int i = 0;
+        if (*p == '+' || *p == '-') numbuf[i++] = *p++;
+        while (*p && isdigit((unsigned char)*p) && i < 30) numbuf[i++] = *p++;
+        numbuf[i] = '\0';
+        if (i == 0) break;
+        int val = atoi(numbuf);
+        // If data is not NULL, store value (assume array, not linked list)
+        if (data && *data) {
+            (*data)[count].value = val;
         }
-        *data = new_data;
-        (*data)[count].value = value;
-        (*data)[count].translated = 1;
         count++;
-        token = strtok(NULL, ",");
     }
-    free(ops);
     return count;
 }
 
 int process_string(const char *operands, data_conv **data) {
-    int count = 0;
+    // Parse quoted string, add ASCII values to data_conv array if needed, add null terminator
+    if (!operands) return 0;
     const char *start = strchr(operands, '"');
     if (!start) return 0;
     start++;
     const char *end = strchr(start, '"');
     if (!end) return 0;
+    int count = 0;
     for (const char *p = start; p < end; p++) {
-        data_conv *new_data = realloc(*data, (count + 1) * sizeof(data_conv));
-        if (!new_data) return count;
-        *data = new_data;
-        (*data)[count].value = (int)(unsigned char)(*p);
-        (*data)[count].translated = 1;
+        if (data && *data) {
+            (*data)[count].value = (unsigned char)*p;
+        }
         count++;
     }
     // Add null terminator
-    data_conv *new_data = realloc(*data, (count + 1) * sizeof(data_conv));
-    if (!new_data) return count;
-    *data = new_data;
-    (*data)[count].value = 0;
-    (*data)[count].translated = 1;
+    if (data && *data) {
+        (*data)[count].value = 0;
+    }
     count++;
     return count;
 }
 
 void add_to_other_table(other_table **table, int *count, const char *operand) {
-    if (!operand) return;
+    // Add a label to the other_table array (for .extern/.entry)
+    if (!operand || !table || !count) return;
+    // Skip whitespace
+    const char *p = operand;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (!*p) return;
+    // Find end of label
+    const char *end = p;
+    while (*end && !isspace((unsigned char)*end) && *end != ',') end++;
+    int len = end - p;
+    if (len <= 0) return;
+    if (len > 31) len = 31;
+    // Allocate or grow the table
     other_table *new_table = realloc(*table, (*count + 1) * sizeof(other_table));
     if (!new_table) return;
     *table = new_table;
-    strncpy((*table)[*count].name, operand, 31);
-    (*table)[*count].name[31] = '\0';
-    (*table)[*count].address = 0;
+    // Use the correct field name for the label (try 'name', fallback to 'symbol' if needed)
+#ifdef OTHER_TABLE_LABEL_FIELD
+    strncpy((*table)[*count].OTHER_TABLE_LABEL_FIELD, p, len);
+    (*table)[*count].OTHER_TABLE_LABEL_FIELD[len] = '\0';
+#else
+    strncpy((*table)[*count].name, p, len);
+    (*table)[*count].name[len] = '\0';
+#endif
     (*count)++;
-}
-
-int check_each_label_once(Label *label_table, int label_table_line, const char *file_name) {
-    for (int i = 0; i < label_table_line; i++) {
-        for (int j = i + 1; j < label_table_line; j++) {
-            if (strcmp(label_table[i].name, label_table[j].name) == 0) {
-                printf("Error: Duplicate label '%s' in %s\n", label_table[i].name, file_name);
-                return 0;
-            }
-        }
-    }
-    return 1;
-}
-
-void exe_second_pass(const char *file_name, Label *label_table, int IC, int DC, int label_table_line,
-                     int externs_count, int entries_count, code_conv *code, data_conv *data,
-                     other_table *externs, other_table *entries, int error_found) {
-    // Empty stub as requested
-}
-
-void free_all_memory(code_conv *code, Label *label_table, other_table *entries, other_table *externs,
-                     int code_size, int label_table_line, int entries_count, int externs_count) {
-    // Free all dynamic memory
-    if (label_table) free(label_table);
-    if (entries) free(entries);
-    if (externs) free(externs);
-    // 'code' is a static array, do not free
 }

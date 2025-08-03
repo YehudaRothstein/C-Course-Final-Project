@@ -62,6 +62,7 @@
     "code_conv.h": "c",
     "code_conversion.h": "c",
     "label_table.h": "c",
-    "data_conv.h": "c"
+    "data_conv.h": "c",
+    "memory_map_data.h": "c"
   }
 }

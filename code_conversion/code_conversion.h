@@ -1,6 +1,14 @@
 #ifndef CODE_CONVERSION_H
 #define CODE_CONVERSION_H
 
+
+typedef struct {
+    unsigned short value;
+    int are;
+    int translated;
+    int src_line;
+} code_conv;
+
 #define MAX_OPCODE_NAME 10
 
 typedef struct {

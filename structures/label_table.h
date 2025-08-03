@@ -3,28 +3,29 @@
 
 #define MAX_LABEL_LEN 31
 
-typedef struct {
+typedef struct LabelNode {
     char name[MAX_LABEL_LEN];
     int address;
     int is_code;
     int is_data;
     int is_extern;
     int is_entry;
-} Label;
+    struct LabelNode *next;
+} LabelNode;
 
-extern Label *label_table;
-extern int label_count;
+// Insert a new label node to the list. Returns 1 on success, 0 on duplicate.
+int insert_label(LabelNode **head, const char *label_name, int address, int is_code, int is_data, int is_extern);
 
-// מוסיף תווית חדשה לטבלה
-int insert_label_table(const char *label_name, int address, int is_code, int is_data, int is_extern, int is_entry);
+// Find a label node by name
+LabelNode* find_label(LabelNode *head, const char *label_name);
 
-// בודק אם תווית קיימת כבר
-int label_exists(const char *label_name);
+// Update data label addresses after first pass (add final IC to all data labels)
+void update_data_labels_address(LabelNode *head);
 
-// עדכון כתובות של תוויות נתונים בסוף המעבר הראשון
-void update_data_labels_address(Label *label_table, int label_table_line, int final_IC);
+// Check for duplicate labels in the list. Returns 1 if no duplicates, 0 if found.
+int check_duplicate_labels(LabelNode *head);
 
-// ניקוי הטבלה בסוף
-void free_label_table();
+// Free the label list
+void free_label_list(LabelNode *head);
 
 #endif

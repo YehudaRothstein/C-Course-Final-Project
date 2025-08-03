@@ -1,9 +1,11 @@
 CC = gcc
-CFLAGS = -Wall -Iutils -Istructures -Ifirst-run -Ierror-handler -Icode_conversion
+CFLAGS = -Wall -Iutils -Istructures -Ifirst-run -Ierror-handler -Icode_conversion -Imemory_map
 OBJDIR = build
 BINDIR = bin
 
 SRCS = assembler.c \
+memory_map/memory_map_data.c \
+memory_map/memory_map.c \
 pre-assembler/pre-assembler.c \
 pre-assembler/spread-macros.c \
 utils/utils.c \
@@ -11,6 +13,7 @@ error-handler/error-handler.c \
 code_conversion/code_conversion.c \
 first-run/first-run.c \
 first-run/data_conv.c \
+first-run/second-run.c \
 structures/label_table.c \
 structures/opcode.c \
 structures/other_table.c
@@ -55,7 +58,7 @@ $(OBJDIR)/code_conversion/%.o: code_conversion/%.c
 
 
 create_dirs:
-	@mkdir -p $(OBJDIR) $(OBJDIR)/pre-assembler $(OBJDIR)/utils $(OBJDIR)/error-handler $(OBJDIR)/first-run $(OBJDIR)/structures $(BINDIR)
+	@mkdir -p $(OBJDIR) $(OBJDIR)/pre-assembler $(OBJDIR)/utils $(OBJDIR)/memory_map $(OBJDIR)/error-handler $(OBJDIR)/first-run $(OBJDIR)/structures $(BINDIR)
 
 clean:
 	rm -rf $(OBJDIR) $(BINDIR)

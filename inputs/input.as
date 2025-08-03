@@ -4,14 +4,13 @@ MAIN:   mov M1[r2][r7],LENGTH
 LOOP:   jmp END
         prn #-5
 
-
         sub r1, r4
         inc K
         
-mov M1[r3][r3],r3
-bne LOOP
+        a_mc
 
-END:    stop
+        sub NUMBER, r2
+
 STR:    .string “abcdef”
 LENGTH: .data 6,-9,15
 K:  .data 22
