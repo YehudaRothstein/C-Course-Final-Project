@@ -7,8 +7,6 @@ LOOP:   jmp END
         sub r1, r4
         inc K
         
-        a_mc
-
         sub NUMBER, r2
 
 STR:    .string “abcdef”

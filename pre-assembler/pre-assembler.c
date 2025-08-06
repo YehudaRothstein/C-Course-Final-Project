@@ -33,7 +33,7 @@ int runPreAssembler(const char *inputPath, const char *outputPath) {
     fclose(inputFile);
     fclose(outputFile);
 
-    spreadMacros(inputPath, outputPath);
+    spreadMacros(inputPath);
 
     return result;
 }
