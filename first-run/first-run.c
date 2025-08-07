@@ -85,6 +85,8 @@ typedef struct {
 // Prototype for second pass function (now in second-run.h)
 #include "second-run.h"
 
+
+
 // Prototype for write_code_file
 void write_code_file(const char *out_filename, code_conv *code, int code_count, data_word *data_image, int data_count);
 
@@ -249,6 +251,8 @@ int exe_first_pass(char *file_name) {
     int externs_count = 0, entries_count = 0;
     code_conv code[1024];
     int code_count = 0;
+    // Zero out ext_name for all code words
+    for (int i = 0; i < 1024; ++i) code[i].ext_name[0] = '\0';
     // Dynamic data image (heap)
     data_word *data_image = NULL;
     int data_count = 0;
@@ -359,6 +363,7 @@ int exe_first_pass(char *file_name) {
                 print_external_error(1, file_name, line_num);
                 error_found = 1;
                 code[code_count].translated = 0;
+                code[code_count].ext_name[0] = '\0';
                 code_count++;
                 free_inst_parts(&inst);
                 continue;
@@ -384,6 +389,7 @@ int exe_first_pass(char *file_name) {
                 printf("[ERROR] Wrong number of operands for '%s' at line %d: expected %d, got %d\n", inst.opcode, line_num, opinfo->num_operands, actual_operands);
                 error_found = 1;
                 code[code_count].translated = 0;
+                code[code_count].ext_name[0] = '\0';
                 code_count++;
                 free_inst_parts(&inst);
                 continue;
@@ -433,6 +439,7 @@ int exe_first_pass(char *file_name) {
             code[code_count].are = 0;
             code[code_count].translated = 1;
             code[code_count].src_line = line_num;
+            code[code_count].ext_name[0] = '\0';
             code_count++;
             IC++;
             // Encode extra words for operands
@@ -444,6 +451,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 1; // R (relocatable)
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                     unsigned short regword = 0;
@@ -453,6 +461,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (src_mode == 0) {
@@ -462,6 +471,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (src_mode == 3 && dst_mode == 3) {
@@ -473,6 +483,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (src_mode == 3) {
@@ -481,14 +492,23 @@ int exe_first_pass(char *file_name) {
                     code[code_count].value = regword;
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (src_mode == 1) {
                     // Direct (label)
+                    // Check if label is external
+                    int is_ext = 0;
+                    for (int ei = 0; ei < externs_count; ++ei) {
+                        if (strcmp(op1, externs[ei].name) == 0) { is_ext = 1; break; }
+                    }
                     code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1; // R
+                    code[code_count].are = is_ext ? 2 : 1; // E or R
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    if (is_ext) strncpy(code[code_count].ext_name, op1, 31); else code[code_count].ext_name[0] = '\0';
+                    code[code_count].ext_name[31] = '\0';
                     code_count++;
                     IC++;
                 }
@@ -499,6 +519,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 1;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                     unsigned short regword = 0;
@@ -508,6 +529,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (dst_mode == 0) {
@@ -516,6 +538,7 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (!(src_mode == 3 && dst_mode == 3) && dst_mode == 3) {
@@ -525,13 +548,20 @@ int exe_first_pass(char *file_name) {
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (dst_mode == 1) {
+                    int is_ext = 0;
+                    for (int ei = 0; ei < externs_count; ++ei) {
+                        if (strcmp(op2, externs[ei].name) == 0) { is_ext = 1; break; }
+                    }
                     code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1;
+                    code[code_count].are = is_ext ? 2 : 1;
                     code[code_count].translated = 1;
                     code[code_count].src_line = line_num;
+                    if (is_ext) strncpy(code[code_count].ext_name, op2, 31); else code[code_count].ext_name[0] = '\0';
+                    code[code_count].ext_name[31] = '\0';
                     code_count++;
                     IC++;
                 }
@@ -541,6 +571,8 @@ int exe_first_pass(char *file_name) {
                     code[code_count].value = 0; // Will be filled in 2nd pass
                     code[code_count].are = 1;
                     code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                     unsigned short regword = 0;
@@ -549,6 +581,8 @@ int exe_first_pass(char *file_name) {
                     code[code_count].value = regword;
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (dst_mode == 0) {
@@ -556,6 +590,8 @@ int exe_first_pass(char *file_name) {
                     code[code_count].value = (unsigned short)(val & 0x3FF);
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (dst_mode == 3) {
@@ -564,12 +600,21 @@ int exe_first_pass(char *file_name) {
                     code[code_count].value = regword;
                     code[code_count].are = 0;
                     code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    code[code_count].ext_name[0] = '\0';
                     code_count++;
                     IC++;
                 } else if (dst_mode == 1) {
+                    int is_ext = 0;
+                    for (int ei = 0; ei < externs_count; ++ei) {
+                        if (strcmp(op1, externs[ei].name) == 0) { is_ext = 1; break; }
+                    }
                     code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1;
+                    code[code_count].are = is_ext ? 2 : 1;
                     code[code_count].translated = 1;
+                    code[code_count].src_line = line_num;
+                    if (is_ext) strncpy(code[code_count].ext_name, op1, 31); else code[code_count].ext_name[0] = '\0';
+                    code[code_count].ext_name[31] = '\0';
                     code_count++;
                     IC++;
                 }
@@ -620,44 +665,24 @@ int exe_first_pass(char *file_name) {
                 insert_label(&label_table_head, dd->label, data_base_addr + DC, 0, 1, 0);
                 base_dc = DC; // label's address in data section
             }
-            // Support both ASCII and Unicode-style quotes for .string
-            const char *start = strchr(dd->operands, '"');
-            if (!start) {
-                // Try Unicode left quote
-                start = strchr(dd->operands, '\xE2');
-                if (start && start[1] == '\x80' && start[2] == '\x9C') {
-                    start += 3;
-                    const char *end = strstr(start, "\xE2\x80\x9D");
-                    if (end) {
-                        int data_idx = base_dc;
-                        for (const char *p = start; p < end; p++) {
-                            data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
-                            data_image[data_count].value = (unsigned short)((unsigned char)*p & 0x3FF);
-                            data_image[data_count].src_line = dd->src_line;
-                            memory_map_set(&data_memory_map, data_idx, (unsigned short)((unsigned char)*p & 0x3FF));
-                            data_count++;
-                            DC++;
-                            data_idx++;
-                        }
-                        // Null terminator
-                        data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
-                        data_image[data_count].value = 0;
-                        data_image[data_count].src_line = dd->src_line;
-                        memory_map_set(&data_memory_map, data_idx, 0);
-                        data_count++;
-                        DC++;
-                    }
+            // Robustly find the first and last ASCII double quotes
+            const char *p = dd->operands;
+            while (*p && *p != '"') p++; // skip to first quote
+            if (*p == '"') {
+                p++; // move past opening quote
+                const char *start = p;
+                const char *end = NULL;
+                while (*p) {
+                    if (*p == '"') { end = p; break; }
+                    p++;
                 }
-            } else {
-                start++;
-                const char *end = strchr(start, '"');
-                if (end) {
+                if (end && end > start) {
                     int data_idx = base_dc;
-                    for (const char *p = start; p < end; p++) {
+                    for (const char *q = start; q < end; q++) {
                         data_image = realloc(data_image, (data_count + 1) * sizeof(data_word));
-                        data_image[data_count].value = (unsigned short)((unsigned char)*p & 0x3FF);
+                        data_image[data_count].value = (unsigned short)((unsigned char)*q & 0x3FF);
                         data_image[data_count].src_line = dd->src_line;
-                        memory_map_set(&data_memory_map, data_idx, (unsigned short)((unsigned char)*p & 0x3FF));
+                        memory_map_set(&data_memory_map, data_idx, (unsigned short)((unsigned char)*q & 0x3FF));
                         data_count++;
                         DC++;
                         data_idx++;
@@ -727,319 +752,8 @@ int exe_first_pass(char *file_name) {
     }
     if (data_directives) free(data_directives);
 
-    printf("[LOG] Opening file: %s\n", file_name);
-    fp = fopen(file_name, "r");
-    if (!fp) {
-        printf("[ERROR] Failed to open file: %s\n", file_name);
-        handleError(1, file_name);
-        return 1;
-    }
 
-    // int line_num = 0; // Removed duplicate declaration
-    while (fgets(line_buf, MAX_LINE_LENGTH, fp)) {
-        line_num++;
-        printf("[LOG] Read line %d: %s", line_num, line_buf);
-
-        // Skip empty/comment lines
-        if (line_buf[0] == '\n' || line_buf[0] == ';') {
-            printf("[LOG] Skipping empty/comment line %d\n", line_num);
-            continue;
-        }
-
-        printf("[LOG] Cleaning up line %d\n", line_num);
-        remove_extra_spaces_str(line_buf);
-        remove_spaces_next_to_comma(line_buf);
-
-        if (strlen(line_buf) > MAX_LINE_LENGTH - 1) {
-            printf("[ERROR] Line %d too long\n", line_num);
-            handleError(1, file_name);
-            error_found = 1;
-            continue;
-        }
-
-        printf("[LOG] Parsing line %d\n", line_num);
-        inst_parts inst = parse_inst_line(line_buf);
-        printf("[LOG] Parsed line %d: label='%s', opcode='%s', operands='%s'\n", line_num,
-            inst.label ? inst.label : "(null)",
-            inst.opcode ? inst.opcode : "(null)",
-            inst.operands ? inst.operands : "(null)");
-
-        // If no opcode, treat as empty line and skip (do not count as error)
-        if (!inst.opcode) {
-            printf("[LOG] No opcode at line %d (empty or whitespace line). Skipping.\n", line_num);
-            free_inst_parts(&inst);
-            continue;
-        }
-
-        // Handle label
-        if (inst.label) {
-            printf("[LOG] Found label '%s' at line %d\n", inst.label, line_num);
-            int error_code = 0;
-            if (!legal_label_decl(inst.label, &error_code)) {
-                printf("[ERROR] Illegal label '%s' at line %d\n", inst.label, line_num);
-                print_external_error(error_code, file_name, line_num);
-                error_found = 1;
-                free_inst_parts(&inst);
-                continue;
-            }
-        }
-
-        // Instruction line (.data/.string/.extern/.entry)
-        if (is_instr(inst.opcode)) {
-            if (strcmp(inst.opcode, ".data") == 0 || strcmp(inst.opcode, ".string") == 0 || strcmp(inst.opcode, ".mat") == 0) {
-                // Collect directive for later processing
-                data_directives = realloc(data_directives, (data_directives_count + 1) * sizeof(DataDirective));
-                strncpy(data_directives[data_directives_count].type, inst.opcode, 7);
-                data_directives[data_directives_count].type[7] = '\0';
-                if (inst.label) {
-                    strncpy(data_directives[data_directives_count].label, inst.label, 31);
-                    data_directives[data_directives_count].label[31] = '\0';
-                } else {
-                    data_directives[data_directives_count].label[0] = '\0';
-                }
-                if (inst.operands) {
-                    strncpy(data_directives[data_directives_count].operands, inst.operands, MAX_LINE_LENGTH-1);
-                    data_directives[data_directives_count].operands[MAX_LINE_LENGTH-1] = '\0';
-                } else {
-                    data_directives[data_directives_count].operands[0] = '\0';
-                }
-                data_directives[data_directives_count].src_line = line_num;
-                data_directives_count++;
-            } else if (strcmp(inst.opcode, ".extern") == 0) {
-                add_to_other_table(&externs, &externs_count, inst.operands);
-            } else if (strcmp(inst.opcode, ".entry") == 0) {
-                add_to_other_table(&entries, &entries_count, inst.operands);
-            }
-        }
-        else {
-            // Real opcode
-            const OpcodeInfo *opinfo = find_opcode(inst.opcode);
-            if (!opinfo) {
-                printf("[ERROR] Unknown opcode '%s' at line %d\n", inst.opcode, line_num);
-                print_external_error(1, file_name, line_num);
-                error_found = 1;
-                code[code_count].translated = 0;
-                code_count++;
-                free_inst_parts(&inst);
-                continue;
-            }
-            // Validate number of operands
-            int actual_operands = 0;
-            char ops[128];
-            ops[0] = '\0';
-            if (inst.operands && strlen(inst.operands) > 0) {
-                strncpy(ops, inst.operands, 127);
-                ops[127] = '\0';
-                const char *tmp = ops;
-                int commas = 0;
-                while (*tmp) { if (*tmp == ',') commas++; tmp++; }
-                actual_operands = commas + 1;
-                int only_ws = 1;
-                for (const char *p = ops; *p; p++) {
-                    if (!isspace((unsigned char)*p) && *p != ',') { only_ws = 0; break; }
-                }
-                if (only_ws) actual_operands = 0;
-            }
-            if (actual_operands != opinfo->num_operands) {
-                printf("[ERROR] Wrong number of operands for '%s' at line %d: expected %d, got %d\n", inst.opcode, line_num, opinfo->num_operands, actual_operands);
-                error_found = 1;
-                code[code_count].translated = 0;
-                code_count++;
-                free_inst_parts(&inst);
-                continue;
-            }
-            // Parse operands
-            char *op1 = NULL, *op2 = NULL;
-            char *comma = strchr(ops, ',');
-            if (comma) {
-                *comma = '\0';
-                op1 = ops;
-                op2 = comma + 1;
-                while (*op2 == ' ' || *op2 == '\t') op2++;
-            } else {
-                op1 = ops;
-            }
-            // Build first word: opcode, addressing modes, ARE=0 (A)
-            unsigned short word = 0;
-            word |= (opinfo->code & 0xF) << 6; // opcode: bits 6-9
-            int src_mode = 0, dst_mode = 0;
-            if (opinfo->num_operands == 2) {
-                // Source
-                if (op1[0] == '#') src_mode = 0;
-                else if (strchr(op1, '[') && strchr(strchr(op1, '[')+1, '[')) src_mode = 2;
-                else if (op1[0] == 'r' && op1[1] >= '0' && op1[1] <= '7' && op1[2] == '\0') src_mode = 3;
-                else src_mode = 1;
-                // Dest
-                if (op2[0] == '#') dst_mode = 0;
-                else if (strchr(op2, '[') && strchr(strchr(op2, '[')+1, '[')) dst_mode = 2;
-                else if (op2[0] == 'r' && op2[1] >= '0' && op2[1] <= '7' && op2[2] == '\0') dst_mode = 3;
-                else dst_mode = 1;
-                word |= (src_mode & 0x3) << 4; // bits 4-5
-                word |= (dst_mode & 0x3) << 2; // bits 2-3
-            } else if (opinfo->num_operands == 1) {
-                // Only dest
-                if (op1[0] == '#') dst_mode = 0;
-                else if (strchr(op1, '[') && strchr(strchr(op1, '[')+1, '[')) dst_mode = 2;
-                else if (op1[0] == 'r' && op1[1] >= '0' && op1[1] <= '7' && op1[2] == '\0') dst_mode = 3;
-                else dst_mode = 1;
-                word |= (dst_mode & 0x3) << 2;
-            }
-            // ARE bits (A=0, R=1, E=2) - for first word always 0 (A)
-            word |= 0; // bits 0-1
-            if (inst.label) {
-                insert_label(&label_table_head, inst.label, IC, 1, 0, 0);
-            }
-            code[code_count].value = word;
-            code[code_count].are = 0;
-            code[code_count].translated = 1;
-            code[code_count].src_line = line_num;
-            code_count++;
-            IC++;
-            // Encode extra words for operands
-            if (opinfo->num_operands == 2) {
-                // Matrix addressing: 2 extra words
-                if (src_mode == 2) {
-                    char matlbl[32]; mat_label(op1, matlbl);
-                    code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1; // R (relocatable)
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                    unsigned short regword = 0;
-                    regword |= (mat_reg(op1, 0) & 0xF) << 6; // row reg
-                    regword |= (mat_reg(op1, 1) & 0xF) << 2; // col reg
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                } else if (src_mode == 0) {
-                    // Immediate
-                    int val = atoi(op1+1);
-                    code[code_count].value = (unsigned short)(val & 0x3FF);
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                } else if (src_mode == 3 && dst_mode == 3) {
-                    // Both registers, share a word
-                    unsigned short regword = 0;
-                    regword |= (regnum(op1) & 0xF) << 6;
-                    regword |= (regnum(op2) & 0xF) << 2;
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                } else if (src_mode == 3) {
-                    unsigned short regword = 0;
-                    regword |= (regnum(op1) & 0xF) << 6;
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code_count++;
-                    IC++;
-                } else if (src_mode == 1) {
-                    // Direct (label)
-                    code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1; // R
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                }
-                // Dest operand
-                if (dst_mode == 2) {
-                    char matlbl[32]; mat_label(op2, matlbl);
-                    code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                    unsigned short regword = 0;
-                    regword |= (mat_reg(op2, 0) & 0xF) << 6;
-                    regword |= (mat_reg(op2, 1) & 0xF) << 2;
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                } else if (dst_mode == 0) {
-                    int val = atoi(op2+1);
-                    code[code_count].value = (unsigned short)(val & 0x3FF);
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                } else if (!(src_mode == 3 && dst_mode == 3) && dst_mode == 3) {
-                    unsigned short regword = 0;
-                    regword |= (regnum(op2) & 0xF) << 2;
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                } else if (dst_mode == 1) {
-                    code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1;
-                    code[code_count].translated = 1;
-                    code[code_count].src_line = line_num;
-                    code_count++;
-                    IC++;
-                }
-            } else if (opinfo->num_operands == 1) {
-                if (dst_mode == 2) {
-                    char matlbl[32]; mat_label(op1, matlbl);
-                    code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1;
-                    code[code_count].translated = 1;
-                    code_count++;
-                    IC++;
-                    unsigned short regword = 0;
-                    regword |= (mat_reg(op1, 0) & 0xF) << 6;
-                    regword |= (mat_reg(op1, 1) & 0xF) << 2;
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code_count++;
-                    IC++;
-                } else if (dst_mode == 0) {
-                    int val = atoi(op1+1);
-                    code[code_count].value = (unsigned short)(val & 0x3FF);
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code_count++;
-                    IC++;
-                } else if (dst_mode == 3) {
-                    unsigned short regword = 0;
-                    regword |= (regnum(op1) & 0xF) << 2;
-                    code[code_count].value = regword;
-                    code[code_count].are = 0;
-                    code[code_count].translated = 1;
-                    code_count++;
-                    IC++;
-                } else if (dst_mode == 1) {
-                    code[code_count].value = 0; // Will be filled in 2nd pass
-                    code[code_count].are = 1;
-                    code[code_count].translated = 1;
-                    code_count++;
-                    IC++;
-                }
-            }
-        }
-        free_inst_parts(&inst);
-    }
-
-    fclose(fp);
-
+    // ...existing code...
     update_data_labels_address(label_table_head);
 
     if (!check_duplicate_labels(label_table_head)) {
@@ -1048,11 +762,106 @@ int exe_first_pass(char *file_name) {
 
     // --- Second pass: resolve all label addresses in code, mark externals, and output .ent/.ext files ---
     // Get base filename for .ent/.ext output (without path and extension)
-    char basefile[128] = "outputs/code";
+    char basefile[256] = {0};
+    const char *slash = strrchr(file_name, '/');
+#ifdef _WIN32
+    if (!slash) slash = strrchr(file_name, '\\');
+#endif
+    const char *base = slash ? slash + 1 : file_name;
+    const char *dot = strrchr(base, '.');
+    size_t len = dot ? (size_t)(dot - base) : strlen(base);
+    strncpy(basefile, base, len);
+    basefile[len] = '\0';
+
     exe_second_pass(code, code_count, label_table_head, entries, entries_count, externs, externs_count, basefile);
 
-    write_code_file(CODE_OUT_FILE, code, code_count, data_image, data_count);
+    // Write .ext file (externals)
+    // For each external symbol, print its name and all code addresses where it is referenced (from code[])
+    if (externs_count > 0) {
+        char extfile[300];
+        snprintf(extfile, sizeof(extfile), "%s.ext", basefile);
+        FILE *fext = fopen(extfile, "w");
+        if (fext) {
+            for (int i = 0; i < externs_count; ++i) {
+                const char *extname = externs[i].name;
+                for (int j = 0; j < code_count; ++j) {
+                    if (code[j].are == 2 && code[j].translated && code[j].src_line > 0 && strcmp(code[j].ext_name, extname) == 0) {
+                        unsigned short addr = IC_INIT_VALUE + j;
+                        char addr_base4[6];
+                        for (int d = 4; d >= 0; d--) {
+                            int digit = (addr >> (d * 2)) & 0x3;
+                            addr_base4[4 - d] = "abcd"[digit];
+                        }
+                        addr_base4[5] = '\0';
+                        char *addr_ptr = addr_base4;
+                        while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
+                        fprintf(fext, "%s %s\n", extname, addr_ptr);
+                    }
+                }
+            }
+            fclose(fext);
+        }
+    }
 
+    // Write .ent file (entries)
+    if (entries_count > 0) {
+        char entfile[300];
+        snprintf(entfile, sizeof(entfile), "%s.ent", basefile);
+        FILE *fent = fopen(entfile, "w");
+        if (fent) {
+            for (int i = 0; i < entries_count; ++i) {
+                // Find label in label table
+                LabelNode *curr = label_table_head;
+                while (curr) {
+                    if (strcmp(curr->name, entries[i].name) == 0 && !curr->is_extern) {
+                        // Print label and address in special base-4
+                        unsigned short addr = curr->address;
+                        char addr_base4[6];
+                        for (int d = 4; d >= 0; d--) {
+                            int digit = (addr >> (d * 2)) & 0x3;
+                            addr_base4[4 - d] = "abcd"[digit];
+                        }
+                        addr_base4[5] = '\0';
+                        char *addr_ptr = addr_base4;
+                        while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
+                        fprintf(fent, "%s %s\n", curr->name, addr_ptr);
+                        break;
+                    }
+                    curr = curr->next;
+                }
+            }
+            fclose(fent);
+        }
+    }
+
+    // Write .ext file (externals)
+    if (externs_count > 0) {
+        char extfile[300];
+        snprintf(extfile, sizeof(extfile), "%s.ext", basefile);
+        FILE *fext = fopen(extfile, "w");
+        if (fext) {
+            for (int i = 0; i < externs_count; ++i) {
+                const char *extname = externs[i].name;
+                for (int j = 0; j < code_count; ++j) {
+                    if (code[j].are == 2 && code[j].translated && code[j].src_line > 0 && strcmp(code[j].ext_name, extname) == 0) {
+                        unsigned short addr = IC_INIT_VALUE + j;
+                        char addr_base4[6];
+                        for (int d = 4; d >= 0; d--) {
+                            int digit = (addr >> (d * 2)) & 0x3;
+                            addr_base4[4 - d] = "abcd"[digit];
+                        }
+                        addr_base4[5] = '\0';
+                        char *addr_ptr = addr_base4;
+                        while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
+                        fprintf(fext, "%s %s\n", extname, addr_ptr);
+                    }
+                }
+            }
+            fclose(fext);
+        }
+    }
+
+    write_code_file(CODE_OUT_FILE, code, code_count, data_image, data_count);
 
     // Print a simple, clear memory map: address (decimal), type (CODE/DATA), value (decimal), value (base-4)
     printf("\n==== MEMORY MAP (address = 100 + code_count + cell index) ====\n");

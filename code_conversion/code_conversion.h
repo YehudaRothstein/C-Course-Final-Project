@@ -4,9 +4,10 @@
 
 typedef struct {
     unsigned short value;
-    int are;
-    int translated;
+    unsigned char are;
+    unsigned char translated;
     int src_line;
+    char ext_name[32]; // name of external symbol if are==2, else empty
 } code_conv;
 
 #define MAX_OPCODE_NAME 10
