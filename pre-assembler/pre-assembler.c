@@ -18,7 +18,8 @@ static FILE *openOutputFile(const char *outputPath, FILE *inputFile);
 static int processLines(FILE *inputFile, FILE *outputFile);
 static int handleLine(char *line, int *inMacro, char *macroName, char *macroContent, int lineNumber);
 
-int runPreAssembler(const char *inputPath, const char *outputPath) {
+// Returns 0 on success, or error code. If macroOutPathOut is not NULL, sets it to the macro-spread file path.
+int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOutPathOut, size_t macroOutPathOutSize) {
     FILE *inputFile = openInputFile(inputPath);
     if (!inputFile) return ERR_FILE_NOT_FOUND;
 
@@ -33,7 +34,28 @@ int runPreAssembler(const char *inputPath, const char *outputPath) {
     fclose(inputFile);
     fclose(outputFile);
 
-    spreadMacros(inputPath);
+
+
+
+    // Create the output file name for the macro-spread file (Linux only)
+    char macroOutPath[512];
+    const char *slash = strrchr(inputPath, '/');
+    const char *base = slash ? slash + 1 : inputPath;
+    // Remove extension if present
+    const char *dot = strrchr(base, '.');
+    size_t len = dot ? (size_t)(dot - base) : strlen(base);
+    snprintf(macroOutPath, sizeof(macroOutPath), "outputs/%.*s.as", (int)len, base);
+
+    spreadMacros(inputPath, macroOutPath);
+
+    // Delete the macros file after the program finishes
+    remove("outputs/macros.txt");
+
+    // Set the output path for the caller if requested
+    if (macroOutPathOut && macroOutPathOutSize > 0) {
+        strncpy(macroOutPathOut, macroOutPath, macroOutPathOutSize - 1);
+        macroOutPathOut[macroOutPathOutSize - 1] = '\0';
+    }
 
     return result;
 }

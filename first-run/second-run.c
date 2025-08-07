@@ -18,11 +18,11 @@ void exe_second_pass(
     // For .ext output
     FILE *extf = NULL;
     char extname[256];
-    snprintf(extname, sizeof(extname), "%s.ext", base_filename);
+    snprintf(extname, sizeof(extname), "outputs/%s.ext", base_filename);
     // For .ent output
     FILE *entf = NULL;
     char entname[256];
-    snprintf(entname, sizeof(entname), "%s.ent", base_filename);
+    snprintf(entname, sizeof(entname), "outputs/%s.ent", base_filename);
     int ent_needed = 0;
     // Open .ent only if needed
     for (int i = 0; i < entries_count; i++) {

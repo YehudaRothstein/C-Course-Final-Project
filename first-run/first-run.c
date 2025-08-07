@@ -1,3 +1,4 @@
+// Duplicate code block removed
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -93,46 +94,53 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
 // Implementation of write_code_file
 // Outputs the code and data images to the object file, including ARE field per code word
 void write_code_file(const char *out_filename, code_conv *code, int code_count, data_word *data_image, int data_count) {
-    // Prepare output file name with .ob extension
-    char ob_filename[256];
-    // Use the base name of the input file (e.g., input.as -> input.ob)
+    // Prepare output file name with .ob extension in outputs directory, matching input file base name
+    char ob_filename[300];
     const char *slash = strrchr(out_filename, '/');
-    #ifdef _WIN32
+#ifdef _WIN32
     if (!slash) slash = strrchr(out_filename, '\\');
-    #endif
+#endif
     const char *base = slash ? slash + 1 : out_filename;
     const char *dot = strrchr(base, '.');
     size_t len = dot ? (size_t)(dot - base) : strlen(base);
-    strncpy(ob_filename, base, len);
-    ob_filename[len] = '\0';
-    strcat(ob_filename, ".ob");
+    char base_name[256];
+    strncpy(base_name, base, len);
+    base_name[len] = '\0';
+    // Use the input file name (without extension) for the .ob file
+    snprintf(ob_filename, sizeof(ob_filename), "outputs/%s.ob", base_name);
     FILE *fp = fopen(ob_filename, "w");
     if (!fp) {
         printf("[ERROR] Cannot open output file: %s\n", ob_filename);
         return;
     }
-    // Arrays for code and data
-    // Find the max address needed (cover both code and data)
-    // int code_cells = code_count; // Unused variable removed
-    // int data_cells = (int)data_memory_map.size; // Removed duplicate definition
-    // Print header: code size and data size
-    int data_cells = (int)data_memory_map.size;
-    fprintf(fp, "%d %d\n", code_count, data_cells);
-    // Print all addresses from 0 to total_cells-1 (address = IC_INIT_VALUE + i)
-    // Print code section: addresses, code, aaaaa for data
+    // Print header: code size and data size in special base-4 language
+    char code_count_base4[6], data_count_base4[6];
+    for (int d = 4; d >= 0; d--) {
+        int digit = ((unsigned int)code_count >> (d * 2)) & 0x3;
+        code_count_base4[4 - d] = "abcd"[digit];
+    }
+    code_count_base4[5] = '\0';
+    for (int d = 4; d >= 0; d--) {
+        int digit = ((unsigned int)data_count >> (d * 2)) & 0x3;
+        data_count_base4[4 - d] = "abcd"[digit];
+    }
+    data_count_base4[5] = '\0';
+    char *cc_ptr = code_count_base4;
+    char *dc_ptr = data_count_base4;
+    while (*cc_ptr == 'a' && *(cc_ptr+1)) cc_ptr++;
+    while (*dc_ptr == 'a' && *(dc_ptr+1)) dc_ptr++;
+    fprintf(fp, "%s %s\n", cc_ptr, dc_ptr);
+    // Print code section
     for (int i = 0; i < code_count; i++) {
         int addr = IC_INIT_VALUE + i;
-        // Address as 10 bits base-4 (a-d, 5 chars), but print only last 4 chars (remove leading 'a')
         char addr_base4[6];
         for (int d = 4; d >= 0; d--) {
             int digit = (addr >> (d * 2)) & 0x3;
             addr_base4[4 - d] = "abcd"[digit];
         }
         addr_base4[5] = '\0';
-        // Remove leading 'a'
         char *addr_ptr = addr_base4;
         while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
-        // Code as 10 bits base-4 (a-d)
         unsigned short code_val = code[i].value & 0x3FF;
         char code_base4[6];
         for (int d = 4; d >= 0; d--) {
@@ -142,7 +150,8 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
         code_base4[5] = '\0';
         fprintf(fp, "%s %s\n", addr_ptr, code_base4);
     }
-    for (int i = 0; i < data_cells; i++) {
+    // Print data section
+    for (int i = 0; i < data_count; i++) {
         int addr = IC_INIT_VALUE + code_count + i;
         char addr_base4[6];
         for (int d = 4; d >= 0; d--) {
@@ -152,12 +161,7 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
         addr_base4[5] = '\0';
         char *addr_ptr = addr_base4;
         while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
-        // Code: always aaaaa for data section
-        // Data as 10 bits base-4 (a-d)
-        unsigned short data_val = 0;
-        if (i < (int)data_memory_map.size) {
-            data_val = data_memory_map.cells[i].value & 0x3FF;
-        }
+        unsigned short data_val = data_image[i].value & 0x3FF;
         char data_base4[6];
         for (int d = 4; d >= 0; d--) {
             int digit = (data_val >> (d * 2)) & 0x3;
@@ -181,9 +185,9 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
         val_base4[5] = '\0';
         printf("%-10d %-8s %-10d %-8s\n", addr, "CODE", val, val_base4);
     }
-    for (int i = 0; i < data_cells; ++i) {
+    for (int i = 0; i < data_count; ++i) {
         int addr = IC_INIT_VALUE + code_count + i;
-        unsigned short val = data_memory_map.cells[i].value & 0x3FF;
+        unsigned short val = data_image[i].value & 0x3FF;
         char val_base4[6];
         for (int d = 4; d >= 0; d--) {
             int digit = (val >> (d * 2)) & 0x3;
@@ -777,91 +781,16 @@ int exe_first_pass(char *file_name) {
 
     // Write .ext file (externals)
     // For each external symbol, print its name and all code addresses where it is referenced (from code[])
-    if (externs_count > 0) {
-        char extfile[300];
-        snprintf(extfile, sizeof(extfile), "%s.ext", basefile);
-        FILE *fext = fopen(extfile, "w");
-        if (fext) {
-            for (int i = 0; i < externs_count; ++i) {
-                const char *extname = externs[i].name;
-                for (int j = 0; j < code_count; ++j) {
-                    if (code[j].are == 2 && code[j].translated && code[j].src_line > 0 && strcmp(code[j].ext_name, extname) == 0) {
-                        unsigned short addr = IC_INIT_VALUE + j;
-                        char addr_base4[6];
-                        for (int d = 4; d >= 0; d--) {
-                            int digit = (addr >> (d * 2)) & 0x3;
-                            addr_base4[4 - d] = "abcd"[digit];
-                        }
-                        addr_base4[5] = '\0';
-                        char *addr_ptr = addr_base4;
-                        while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
-                        fprintf(fext, "%s %s\n", extname, addr_ptr);
-                    }
-                }
-            }
-            fclose(fext);
-        }
-    }
+    // Removed duplicate .ext file generation in outputs/ directory. Only exe_second_pass handles this now.
 
     // Write .ent file (entries)
-    if (entries_count > 0) {
-        char entfile[300];
-        snprintf(entfile, sizeof(entfile), "%s.ent", basefile);
-        FILE *fent = fopen(entfile, "w");
-        if (fent) {
-            for (int i = 0; i < entries_count; ++i) {
-                // Find label in label table
-                LabelNode *curr = label_table_head;
-                while (curr) {
-                    if (strcmp(curr->name, entries[i].name) == 0 && !curr->is_extern) {
-                        // Print label and address in special base-4
-                        unsigned short addr = curr->address;
-                        char addr_base4[6];
-                        for (int d = 4; d >= 0; d--) {
-                            int digit = (addr >> (d * 2)) & 0x3;
-                            addr_base4[4 - d] = "abcd"[digit];
-                        }
-                        addr_base4[5] = '\0';
-                        char *addr_ptr = addr_base4;
-                        while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
-                        fprintf(fent, "%s %s\n", curr->name, addr_ptr);
-                        break;
-                    }
-                    curr = curr->next;
-                }
-            }
-            fclose(fent);
-        }
-    }
+    // Removed duplicate .ent file generation in outputs/ directory. Only exe_second_pass handles this now.
 
     // Write .ext file (externals)
-    if (externs_count > 0) {
-        char extfile[300];
-        snprintf(extfile, sizeof(extfile), "%s.ext", basefile);
-        FILE *fext = fopen(extfile, "w");
-        if (fext) {
-            for (int i = 0; i < externs_count; ++i) {
-                const char *extname = externs[i].name;
-                for (int j = 0; j < code_count; ++j) {
-                    if (code[j].are == 2 && code[j].translated && code[j].src_line > 0 && strcmp(code[j].ext_name, extname) == 0) {
-                        unsigned short addr = IC_INIT_VALUE + j;
-                        char addr_base4[6];
-                        for (int d = 4; d >= 0; d--) {
-                            int digit = (addr >> (d * 2)) & 0x3;
-                            addr_base4[4 - d] = "abcd"[digit];
-                        }
-                        addr_base4[5] = '\0';
-                        char *addr_ptr = addr_base4;
-                        while (*addr_ptr == 'a' && *(addr_ptr+1)) addr_ptr++;
-                        fprintf(fext, "%s %s\n", extname, addr_ptr);
-                    }
-                }
-            }
-            fclose(fext);
-        }
-    }
+    // Removed duplicate .ext file generation in base folder. Only exe_second_pass handles this now.
 
-    write_code_file(CODE_OUT_FILE, code, code_count, data_image, data_count);
+    // Write .ob file using the input file base name
+    write_code_file(basefile, code, code_count, data_image, data_count);
 
     // Print a simple, clear memory map: address (decimal), type (CODE/DATA), value (decimal), value (base-4)
     printf("\n==== MEMORY MAP (address = 100 + code_count + cell index) ====\n");

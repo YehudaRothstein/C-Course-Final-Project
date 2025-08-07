@@ -12,19 +12,15 @@ int main(int argc, char *argv[]) {
     const char *inputFile = argv[1];
     const char *outputFile = "outputs/macros.txt";
 
-    int result = runPreAssembler(inputFile, outputFile);
+    char macroSpreadFile[256];
+    int result = runPreAssembler(inputFile, outputFile, macroSpreadFile, sizeof(macroSpreadFile));
     if (result != 0) {
         printf("no result.\n");
         return result;
     }
 
-    // Spread macros (creates .am file)
-    // spreadMacros(inputFile, outputFile); // If not already called in runPreAssembler
-
-    // Run first pass on the .am file
-    char amFile[256];
-    snprintf(amFile, sizeof(amFile), "%s.am", inputFile);
-    int firstPassResult = exe_first_pass(amFile);
+    // Run first pass on the macro-spread .as file
+    int firstPassResult = exe_first_pass(macroSpreadFile);
     if (firstPassResult != 0) {
         printf("First pass failed.\n");
         return firstPassResult;

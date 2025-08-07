@@ -38,22 +38,20 @@ static int macro_name_match(const char *line, const char *macro_name) {
     return strcasecmp(trimmed_line, macro_name) == 0;
 }
 
-int spreadMacros(const char *inputPath) {
+int spreadMacros(const char *inputPath, const char *outputPath) {
     Macro macros[MAX_MACROS];
     int macroCount = 0;
 
     FILE *input = fopen(inputPath, "r");
     if (!input) {
-        printf("Failed to open input file.\n");
+        printf("Failed to open input file: %s\n", inputPath);
         return 1;
     }
 
-    char outputPath[LINE_SIZE];
-    snprintf(outputPath, LINE_SIZE, "%s.am", inputPath);
     FILE *output = fopen(outputPath, "w");
     if (!output) {
         fclose(input);
-        printf("Failed to create output file.\n");
+        printf("Failed to create output file: %s\n", outputPath);
         return 1;
     }
 
