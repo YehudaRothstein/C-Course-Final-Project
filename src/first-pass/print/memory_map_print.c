@@ -1,8 +1,7 @@
 #include <stdio.h>
-
-#include "memory_map_print.h"
+#include "print/memory_map_print.h"
 #include "data_word.h"
-#include "label_table.h"
+#include "structures/label_table.h"
 
 void print_memory_map(int code_count, code_conv *code, int data_count, data_word *data_image, LabelNode *label_table_head) {
     int IC_INIT_VALUE = 100;
@@ -17,15 +16,11 @@ void print_memory_map(int code_count, code_conv *code, int data_count, data_word
             val_base4[4 - d] = "abcd"[digit];
         }
         val_base4[5] = '\0';
-        
         {
             const char *label = NULL;
             LabelNode *curr = label_table_head;
             while (curr) {
-                if (curr->is_code && curr->address == addr) {
-                    label = curr->name;
-                    break;
-                }
+                if (curr->is_code && curr->address == addr) { label = curr->name; break; }
                 curr = curr->next;
             }
             if (label)

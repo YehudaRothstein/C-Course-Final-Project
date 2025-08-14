@@ -5,7 +5,7 @@
 #include "code_conversion.h"
 #include "label_table.h"
 #include "other_table.h"
-#include "data_conv.h"
+#include "data/data_conv.h"
 
 int emit_instruction(inst_parts *inst, code_conv *code, int code_count, int line_num, LabelNode **label_table_head, int *error_found, const char *file_name);
 int regnum(const char *reg);

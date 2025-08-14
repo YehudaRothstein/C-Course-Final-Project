@@ -29,7 +29,6 @@ void exe_second_pass(
     }
     if (ent_needed) entf = fopen(entname, "w");
 
-    
     for (i = 0; i < code_count; i++) {
         if (code[i].are == 1) {
             const char *sym = code[i].ext_name;
@@ -42,7 +41,6 @@ void exe_second_pass(
                         if (!extf) extf = fopen(extname, "w");
                         if (extf) fprintf(extf, "%s %d\n", sym, 100 + i);
                     } else {
-                        /* Encode address in bits 2-9 (shift left 2) leaving ARE in bits 0-1 */
                         code[i].value = (unsigned short)(((unsigned short)lbl->address << 2) & 0x3FC);
                         code[i].are = 1; 
                     }

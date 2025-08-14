@@ -2,17 +2,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "../error-handler/error-handler.h"
 
 
 int insert_label(LabelNode **head, const char *label_name, int address, int is_code, int is_data, int is_extern) {
     LabelNode *new_node;
     if (find_label(*head, label_name) != NULL) {
-        fprintf(stderr, "Error: Duplicate label '%s'\n", label_name);
+        error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, "%s", label_name);
         return 0;
     }
     new_node = (LabelNode *)malloc(sizeof(LabelNode));
     if (!new_node) {
-        fprintf(stderr, "Error: Memory allocation failed for label node\n");
+        error_report_ex(ERR_SEV_ERROR, ERR_OUT_OF_MEMORY, NULL, 0, "label node");
         return 0;
     }
     strncpy(new_node->name, label_name, MAX_LABEL_LEN - 1);
@@ -58,7 +59,7 @@ int check_duplicate_labels(LabelNode *head) {
         LabelNode *other;
         for (other = curr->next; other; other = other->next) {
             if (strcmp(curr->name, other->name) == 0) {
-                fprintf(stderr, "Error: Duplicate label '%s' found in label table\n", curr->name);
+                error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, "%s", curr->name);
                 return 0;
             }
         }

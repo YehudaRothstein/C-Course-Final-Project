@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
-#include "output_writer.h"
+#include "output/output_writer.h"
+#include "../../error-handler/error-handler.h"
 
 void write_code_file(const char *out_filename, code_conv *code, int code_count, data_word *data_image, int data_count) {
     char ob_filename[300];
@@ -15,13 +16,13 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
     strncpy(base_name, base, len);
     base_name[len] = '\0';
 
-    
     sprintf(ob_filename, "outputs/%s.ob", base_name);
     {
         FILE *fp = fopen(ob_filename, "w");
-        if (!fp) return;
-
-        
+        if (!fp) {
+            error_report_ex(ERR_SEV_ERROR, ERR_OUTPUT_OB_WRITE_FAIL, ob_filename, 0, NULL);
+            return;
+        }
         {
             char code_count_base4[6], data_count_base4[6];
             for (d = 4; d >= 0; d--) {
@@ -42,11 +43,8 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
                 fprintf(fp, "%s %s\n", cc_ptr, dc_ptr);
             }
         }
-
-        
         for (i = 0; i < code_count; i++) {
             int addr = 100 + i;
-            
             unsigned short are_bits = (code[i].are == 0 ? 0 : (code[i].are == 1 ? 2 : 1));
             unsigned short code_val = (code[i].value & 0x3FC) | are_bits;
             char code_base4[6];
@@ -59,7 +57,7 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
         }
         for (i = 0; i < data_count; i++) {
             int addr = 100 + code_count + i;
-            unsigned short data_val = data_image[i].value & 0x3FF; 
+            unsigned short data_val = data_image[i].value & 0x3FF;
             char data_base4[6];
             for (d = 4; d >= 0; d--) {
                 int digit = (data_val >> (d * 2)) & 0x3;
@@ -70,38 +68,30 @@ void write_code_file(const char *out_filename, code_conv *code, int code_count, 
         }
         fclose(fp);
     }
-
-    
     {
         char dec_filename[300];
         FILE *fdec;
         sprintf(dec_filename, "outputs/%s.bin", base_name);
         fdec = fopen(dec_filename, "w");
-        if (!fdec) return;
-
-        
+        if (!fdec) { error_report_ex(ERR_SEV_ERROR, ERR_OUTPUT_BIN_WRITE_FAIL, dec_filename, 0, NULL); return; }
         for (i = 0; i < code_count; i++) {
             int addr = 100 + i;
             unsigned short are_bits = (code[i].are == 0 ? 0 : (code[i].are == 1 ? 2 : 1));
             unsigned short val = (code[i].value & 0x3FC) | are_bits;
-            {
-                char bits[11];
-                int b;
-                for (b = 9; b >= 0; b--) bits[9 - b] = ((val >> b) & 1) ? '1' : '0';
-                bits[10] = '\0';
-                fprintf(fdec, "%d %s\n", addr, bits);
-            }
+            char bits[11];
+            int b;
+            for (b = 9; b >= 0; b--) bits[9 - b] = ((val >> b) & 1) ? '1' : '0';
+            bits[10] = '\0';
+            fprintf(fdec, "%d %s\n", addr, bits);
         }
         for (i = 0; i < data_count; i++) {
             int addr = 100 + code_count + i;
             unsigned short val = data_image[i].value & 0x3FF;
-            {
-                char bits[11];
-                int b2;
-                for (b2 = 9; b2 >= 0; b2--) bits[9 - b2] = ((val >> b2) & 1) ? '1' : '0';
-                bits[10] = '\0';
-                fprintf(fdec, "%d %s\n", addr, bits);
-            }
+            char bits[11];
+            int b2;
+            for (b2 = 9; b2 >= 0; b2--) bits[9 - b2] = ((val >> b2) & 1) ? '1' : '0';
+            bits[10] = '\0';
+            fprintf(fdec, "%d %s\n", addr, bits);
         }
         fclose(fdec);
     }

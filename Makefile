@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -ansi -pedantic -Isrc -Isrc/utils -Isrc/structures -Isrc/first-run -Isrc/error-handler -Isrc/code_conversion -Isrc/memory_map -Isrc/pre-assembler
+CFLAGS = -Wall -ansi -pedantic -Isrc -Isrc/utils -Isrc/structures -Isrc/first-run -Isrc/first-pass -Isrc/first-pass/data -Isrc/first-pass/emit -Isrc/first-pass/output -Isrc/first-pass/print -Isrc/second-run -Isrc/error-handler -Isrc/code_conversion -Isrc/memory_map -Isrc/pre-assembler
 OBJDIR = build
 BINDIR = bin
 
@@ -12,11 +12,12 @@ SRCS = \
  src/error-handler/error-handler.c \
  src/code_conversion/code_conversion.c \
  src/first-run/first-run.c \
- src/first-run/data_conv.c \
- src/first-run/second-run.c \
- src/first-run/modular_helpers.c \
- src/first-run/memory_map_print.c \
- src/first-run/output_writer.c \
+ src/first-pass/data/data_conv.c \
+ src/first-pass/data/process_data_directives.c \
+ src/second-run/second-run.c \
+ src/first-pass/emit/modular_helpers.c \
+ src/first-pass/print/memory_map_print.c \
+ src/first-pass/output/output_writer.c \
  src/structures/label_table.c \
  src/structures/opcode.c \
  src/structures/other_table.c \
