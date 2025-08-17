@@ -1,299 +1,265 @@
-#include <stdbool.h>
-#include <stddef.h>
-#include <string.h>
+/* C-Course Final Project - Assembler (authored by Yehuda) */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
-#include "utils.h"
-#include "error-handler.h"
-#include "label_table.h"
-#include "other_table.h"
-#include "../first-pass/data/data_conv.h"
-#include "code_conversion.h"
-#include "memory_map.h"
-#include "memory_map_data.h"
+#include "first-run.h"
+#include "../utils/utils.h"
+#include "../error-handler/error-handler.h"
+#include "../structures/label_table.h"
+#include "../structures/other_table.h"
+#include "../code_conversion/code_conversion.h"
 #include "../first-pass/emit/modular_helpers.h"
-#include "data_directive.h"
-#include "../first-pass/output/output_writer.h"
-#include "data_word.h"
-#include "../first-pass/print/memory_map_print.h"
-#include "second-run/second-run.h"
 #include "../first-pass/data/process_data_directives.h"
-
-#ifndef IC_INIT_VALUE
-#define IC_INIT_VALUE 100
-#endif
-
+#include "../first-pass/output/output_writer.h"
+#include "../first-pass/print/memory_map_print.h"
+#include "../second-run/second-run.h"
+#include "../memory_map/memory_map.h"
 
 int print_symbol_table(LabelNode *head) {
     LabelNode *curr = head;
-    while (curr) {
-        const char *type = curr->is_code ? "code" :
-                           (curr->is_data ? "data" :
-                           (curr->is_extern ? "extern" : "?"));
-        printf("%s %d %s\n", curr->name, curr->address, type);
-        curr = curr->next;
-    }
-    return 0;
+    int count = 0;
+    while (curr) { printf("%s %d %d %d %d\n", curr->name, curr->address, curr->is_code, curr->is_data, curr->is_extern); curr = curr->next; count++; }
+    return count;
 }
 
-
 int legal_label_decl(const char *label, int *error_code) {
-    int i;
-    int len;
-    if (!label || !label[0]) { if (error_code) *error_code = 1; return 0; }
-    len = strlen(label);
-    if (len > 30) { if (error_code) *error_code = 2; return 0; }
-    if (!isalpha((unsigned char)label[0])) { if (error_code) *error_code = 3; return 0; }
-    for (i = 1; i < len; i++) {
-        if (!isalnum((unsigned char)label[i])) { if (error_code) *error_code = 4; return 0; }
-    }
-    if (find_opcode(label) != NULL || is_instr(label)) { if (error_code) *error_code = 5; return 0; }
-    if (len == 2 && label[0] == 'r' && label[1] >= '0' && label[1] <= '7') { if (error_code) *error_code = 6; return 0; }
-    if (error_code) *error_code = 0;
+    size_t len; const char *p;
+    if (!label || !*label) { if (error_code) *error_code = 1; return 0; }
+    if (!isalpha((unsigned char)label[0])) { if (error_code) *error_code = 2; return 0; }
+    len = strlen(label); if (len > 30) { if (error_code) *error_code = 3; return 0; }
+    p = label; while (*p) { if (!isalnum((unsigned char)*p)) { if (error_code) *error_code = 4; return 0; } p++; }
+    if (findOpcodeByName(label) != NULL || isInstr(label)) { if (error_code) *error_code = 5; return 0; }
     return 1;
 }
 
 void print_external_error(int error_code, const char *file_name, int line_num) {
-    const char *msg = NULL;
-    ErrorCode mapped = ERR_NONE;
+    ErrorCode mapped = ERR_LABEL_NOT_START_ALPHA;
+    const char *msg = "";
     switch (error_code) {
-        case 1: msg = "Label is empty or NULL"; mapped = ERR_LABEL_EMPTY; break;
-        case 2: msg = "Label is too long (max 30 chars)"; mapped = ERR_LABEL_TOO_LONG; break;
-        case 3: msg = "Label must start with a letter"; mapped = ERR_LABEL_NOT_START_ALPHA; break;
-        case 4: msg = "Label contains non-alphanumeric characters"; mapped = ERR_LABEL_NON_ALNUM; break;
-        case 5: msg = "Label is a reserved word (opcode/instruction)"; mapped = ERR_LABEL_RESERVED_WORD; break;
-        case 6: msg = "Label is a register name (r0-r7)"; mapped = ERR_LABEL_IS_REGISTER; break;
-        default: msg = "Unknown label error"; mapped = ERR_SYMBOL_TABLE_INCONSISTENT; break;
+        case 1: mapped = ERR_LABEL_EMPTY; msg = "Empty label name"; break;
+        case 2: mapped = ERR_LABEL_NOT_START_ALPHA; msg = "Label must start with a letter"; break;
+        case 3: mapped = ERR_LABEL_TOO_LONG; msg = "Label too long"; break;
+        case 4: mapped = ERR_LABEL_NON_ALNUM; msg = "Label has invalid character"; break;
+        case 5: mapped = ERR_LABEL_RESERVED_WORD; msg = "Label collides with reserved word"; break;
+        default: mapped = ERR_LABEL_NOT_START_ALPHA; msg = "Label error"; break;
     }
-    error_report_ex(ERR_SEV_ERROR, mapped, file_name, line_num, "%s", msg);
+    error_report_ex(ERR_SEV_ERROR, mapped, file_name, line_num, msg);
 }
 
-int process_data(const char *operands, data_conv **data) {
-    int count = 0;
-    const char *p;
-    char numbuf[32];
-    int i;
-    if (!operands) return 0;
-    p = operands;
-    while (*p) {
-        while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
-        if (!*p) break;
-        i = 0;
-        if (*p == '+' || *p == '-') numbuf[i++] = *p++;
-        while (*p && isdigit((unsigned char)*p) && i < 30) numbuf[i++] = *p++;
-        numbuf[i] = '\0';
-        if (i == 0) break;
-        {
-            int val = atoi(numbuf);
-            if (data && *data) { (*data)[count].value = val; }
-            count++;
-        }
+int process_data(const char *operands, data_conv_t **data) {
+    const char *p = operands; int count = 0; int cap = 8; int *arr = (int*)malloc(sizeof(int)*cap); char *end;
+    if (!arr) return 0;
+    while (p && *p) {
+        long v = strtol(p, &end, 10);
+        if (p == end) break;
+        if (count >= cap) { cap *= 2; arr = (int*)realloc(arr, sizeof(int)*cap); if (!arr) return 0; }
+        arr[count++] = (int)v;
+        p = strchr(end, ','); if (p) p++; else break;
     }
+    *data = (data_conv_t*)arr;
     return count;
 }
 
-int process_string(const char *operands, data_conv **data) {
-    const char *start;
-    const char *end;
-    const char *p;
-    int count = 0;
-    if (!operands) return 0;
-    start = strchr(operands, '"');
-    if (!start) return 0;
-    start++;
-    end = strchr(start, '"');
-    if (!end) return 0;
-    for (p = start; p < end; p++) {
-        if (data && *data) { (*data)[count].value = (unsigned char)*p; }
-        count++;
-    }
-    if (data && *data) { (*data)[count].value = 0; }
-    count++;
+int process_string(const char *operands, data_conv_t **data) {
+    const char *q; int count = 0; int cap = 16; unsigned char *buf = (unsigned char*)malloc(cap);
+    if (!buf) return 0;
+    q = operands; if (*q == '"') q++;
+    while (*q && *q != '"') { if (count >= cap) { cap *= 2; buf = (unsigned char*)realloc(buf, cap); if (!buf) return 0; } buf[count++] = (unsigned char)*q++; }
+    if (count >= cap) { cap++; buf = (unsigned char*)realloc(buf, cap); if (!buf) return 0; }
+    buf[count++] = 0;
+    *data = (data_conv_t*)buf;
     return count;
 }
 
 void add_to_other_table(other_table **table, int *count, const char *operand) {
-    const char *p;
-    const char *end;
-    int len;
-    other_table *new_table;
-    if (!operand || !table || !count) return;
-    p = operand;
-    while (*p && isspace((unsigned char)*p)) p++;
-    if (!*p) return;
-    end = p;
-    while (*end && !isspace((unsigned char)*end) && *end != ',') end++;
-    len = (int)(end - p);
-    if (len <= 0) return;
-    if (len > 31) len = 31;
-    new_table = realloc(*table, (*count + 1) * sizeof(other_table));
-    if (!new_table) return;
-    *table = new_table;
-#ifdef OTHER_TABLE_LABEL_FIELD
-    strncpy((*table)[*count].OTHER_TABLE_LABEL_FIELD, p, len);
-    (*table)[*count].OTHER_TABLE_LABEL_FIELD[len] = '\0';
-#else
-    strncpy((*table)[*count].name, p, len);
-    (*table)[*count].name[len] = '\0';
-#endif
+    *table = (other_table*)realloc(*table, sizeof(other_table) * (*count + 1));
+    if (!*table) return;
+    strncpy((*table)[*count].name, operand, sizeof((*table)[*count].name)-1);
+    (*table)[*count].name[sizeof((*table)[*count].name)-1] = '\0';
     (*count)++;
 }
 
-
-
 static void get_basefile(const char *file_name, char *basefile, size_t basefile_size) {
-    const char *slash = strrchr(file_name, '/');
-    const char *base = slash ? slash + 1 : file_name;
-    const char *dot = strrchr(base, '.');
-    size_t len = dot ? (size_t)(dot - base) : strlen(base);
-    if (len >= basefile_size) len = basefile_size - 1;
-    strncpy(basefile, base, len);
-    basefile[len] = '\0';
+    const char *slash = strrchr(file_name, '/'); const char *back = strrchr(file_name, '\\'); const char *sep = slash ? slash : back; const char *name = sep ? sep + 1 : file_name; const char *dot = strrchr(name, '.'); size_t n = dot ? (size_t)(dot - name) : strlen(name);
+    if (n >= basefile_size) {
+        n = basefile_size - 1;
+    }
+    memcpy(basefile, name, n);
+    basefile[n] = '\0';
 }
 
-
 int exe_first_pass(char *file_name) {
-    char line_buf[MAX_LINE_LENGTH];
-    int DC = 0;
-    int error_found = 0;
-    LabelNode *label_table_head = NULL;
-    other_table *externs = NULL, *entries = NULL;
-    int externs_count = 0, entries_count = 0;
-    code_conv code[1024];
-    int i;
-    int code_count = 0;
-    data_word *data_image = NULL;
-    int data_count = 0;
-    DataDirective *data_directives = NULL;
-    int data_directives_count = 0;
-    FILE *fp;
-    int line_num = 0;
-    int data_base_addr;
-    char basefile[256];
-
-    for (i = 0; i < 1024; ++i) code[i].ext_name[0] = '\0';
+    FILE *fp; char line_buf[256]; int line_num = 0; int error_found = 0; int DC = 0; code_conv_t *code = NULL; int code_count = 0; int code_cap = 0; data_word *data_image = NULL; int data_count = 0; LabelNode *label_table_head = NULL; int entries_count = 0, externs_count = 0; other_table *entries = NULL, *externs = NULL; MemoryMap data_memory_map; int data_base_addr = 100;
+    DataDirective *dataDirectives = NULL; int dataDirectivesCount = 0; int dataDirectivesCap = 0;
     memory_map_init(&data_memory_map);
-
-    printf("[LOG] Opening file: %s\n", file_name);
-    fp = fopen(file_name, "r");
-    if (!fp) {
-        error_report(ERR_IO_INPUT_OPEN_FAIL, file_name, 0, file_name);
-        return 1;
-    }
-
-    while (fgets(line_buf, MAX_LINE_LENGTH, fp)) {
-        line_num++;
-        printf("[LOG] Read line %d: %s", line_num, line_buf);
-        if (line_buf[0] == '\n' || line_buf[0] == ';') {
-            printf("[LOG] Skipping empty/comment line %d\n", line_num);
-            continue;
-        }
-        printf("[LOG] Cleaning up line %d\n", line_num);
-        remove_extra_spaces_str(line_buf);
-        remove_spaces_next_to_comma(line_buf);
-        if (strlen(line_buf) > MAX_LINE_LENGTH - 1) {
+    fp = fopen(file_name, "r"); if (!fp) { error_report(ERR_IO_INPUT_OPEN_FAIL, file_name, 0, file_name); return 1; }
+    while (fgets(line_buf, sizeof(line_buf), fp)) {
+        int line_len = (int)strlen(line_buf); line_num++;
+        if (line_len >= 1 && (line_buf[line_len-1] == '\n' || line_buf[line_len-1] == '\r')) line_buf[line_len-1] = '\0';
+        removeExtraSpacesStr(line_buf);
+        removeSpacesNextToComma(line_buf);
+        if ((int)strlen(line_buf) > 80) {
             error_report_ex(ERR_SEV_ERROR, ERR_LINE_TOO_LONG, file_name, line_num, NULL);
-            error_found = 1;
             continue;
         }
-        printf("[LOG] Parsing line %d\n", line_num);
+        if (line_buf[0] == '\0' || line_buf[0] == ';') continue;
         {
-            inst_parts inst = parse_inst_line(line_buf);
-            printf("[LOG] Parsed line %d: label='%s', opcode='%s', operands='%s'\n", line_num,
-                inst.label ? inst.label : "(null)",
-                inst.opcode ? inst.opcode : "(null)",
-                inst.operands ? inst.operands : "(null)");
+            InstParts inst = parseInstLine(line_buf);
             if (!inst.opcode) {
-                printf("[LOG] No opcode at line %d (empty or whitespace line). Skipping.\n", line_num);
-                free_inst_parts(&inst);
+                freeInstParts(&inst);
                 continue;
             }
-            if (inst.label) {
+            if (inst.label && *inst.label) {
                 int error_code = 0;
                 if (!legal_label_decl(inst.label, &error_code)) {
-                    error_report_ex(ERR_SEV_ERROR, ERR_LABEL_REDEFINED, file_name, line_num, "Illegal label '%s'", inst.label);
+                    char details[100];
+                    sprintf(details, "Illegal label '%s'", inst.label);
+                    error_report_ex(ERR_SEV_ERROR, ERR_LABEL_REDEFINED, file_name, line_num, details);
                     print_external_error(error_code, file_name, line_num);
-                    error_found = 1;
-                    free_inst_parts(&inst);
+                    freeInstParts(&inst);
                     continue;
                 }
             }
-            if (is_instr(inst.opcode)) {
-                if (strcmp(inst.opcode, ".data") == 0 || strcmp(inst.opcode, ".string") == 0 || strcmp(inst.opcode, ".mat") == 0) {
-                    data_directives = realloc(data_directives, (data_directives_count + 1) * sizeof(DataDirective));
-                    strncpy(data_directives[data_directives_count].type, inst.opcode, 7);
-                    data_directives[data_directives_count].type[7] = '\0';
-                    if (inst.label) {
-                        strncpy(data_directives[data_directives_count].label, inst.label, 31);
-                        data_directives[data_directives_count].label[31] = '\0';
-                    } else {
-                        data_directives[data_directives_count].label[0] = '\0';
-                    }
-                    if (inst.operands) {
-                        strncpy(data_directives[data_directives_count].operands, inst.operands, MAX_LINE_LENGTH-1);
-                        data_directives[data_directives_count].operands[MAX_LINE_LENGTH-1] = '\0';
-                    } else {
-                        data_directives[data_directives_count].operands[0] = '\0';
-                    }
-                    data_directives[data_directives_count].src_line = line_num;
-                    data_directives_count++;
-                } else if (strcmp(inst.opcode, ".extern") == 0) {
+            if (isInstr(inst.opcode)) {
+                if (strcmp(inst.opcode, ".extern") == 0) {
                     add_to_other_table(&externs, &externs_count, inst.operands);
+                    /* Also register extern in label table so second pass can detect it */
+                    if (inst.operands && *inst.operands) {
+                        int lerr = 0;
+                        if (!legal_label_decl(inst.operands, &lerr)) {
+                            print_external_error(lerr, file_name, line_num);
+                            error_found = 1;
+                        } else {
+                            LabelNode *existing = find_label(label_table_head, inst.operands);
+                            if (existing) {
+                                if (!existing->is_extern) {
+                                    error_report_ex(ERR_SEV_ERROR, ERR_EXTERN_LOCAL_CONFLICT, file_name, line_num, inst.operands);
+                                    error_found = 1;
+                                } else {
+                                    error_report_ex(ERR_SEV_WARNING, ERR_EXTERN_DUPLICATE, file_name, line_num, inst.operands);
+                                }
+                            } else {
+                                insert_label(&label_table_head, inst.operands, 0, 0, 0, 1);
+                            }
+                        }
+                    }
                 } else if (strcmp(inst.opcode, ".entry") == 0) {
                     add_to_other_table(&entries, &entries_count, inst.operands);
-                }
-            }
-            else {
-                
-                {
-                    int emitted = emit_instruction(&inst, code, code_count, line_num, &label_table_head, &error_found, file_name);
-                    if (emitted > 0) {
-                        code_count += emitted;
+                } else if (strcmp(inst.opcode, ".data") == 0 || strcmp(inst.opcode, ".string") == 0 || strcmp(inst.opcode, ".mat") == 0) {
+                    if (dataDirectivesCount >= dataDirectivesCap) { int newCap = dataDirectivesCap ? dataDirectivesCap * 2 : 16; DataDirective *tmp = (DataDirective*)realloc(dataDirectives, sizeof(DataDirective) * newCap); if (!tmp) { freeInstParts(&inst); fclose(fp); free(code); free(data_image); free(entries); free(externs); free(dataDirectives); return 1; } dataDirectives = tmp; dataDirectivesCap = newCap; }
+                    {
+                        DataDirective *dd = &dataDirectives[dataDirectivesCount++];
+                        memset(dd, 0, sizeof(*dd));
+                        strncpy(dd->type, inst.opcode, sizeof(dd->type) - 1);
+                        if (inst.label) strncpy(dd->label, inst.label, sizeof(dd->label) - 1);
+                        if (inst.operands) strncpy(dd->operands, inst.operands, sizeof(dd->operands) - 1);
+                        dd->src_line = line_num;
                     }
                 }
+            } else {
+                if (code_count >= code_cap) { code_cap = code_cap ? code_cap * 2 : 64; code = (code_conv_t*)realloc(code, sizeof(code_conv_t) * code_cap); if (!code) { fclose(fp); free(dataDirectives); return 1; } }
+                {
+                    int emitted = emit_instruction(&inst, code, code_count, line_num, &label_table_head, &error_found, file_name);
+                    if (emitted < 0) { error_found = 1; }
+                    else { code_count += emitted; }
+                }
             }
-            free_inst_parts(&inst);
+            freeInstParts(&inst);
         }
     }
     fclose(fp);
+    if (dataDirectivesCount > 0) {
+        data_base_addr = 100 + code_count;
 
-    
-    DC = 0;
-    data_count = 0;
-    if (data_image) { free(data_image); data_image = NULL; }
-    data_base_addr = IC_INIT_VALUE + code_count;
-    process_data_directives(data_directives, data_directives_count, data_base_addr, &data_image, &data_count, &DC, &label_table_head);
-    if (data_directives) free(data_directives);
+        /* Compute required number of data words by scanning directives */
+        {
+            int required_words = 0;
+            int idx;
+            for (idx = 0; idx < dataDirectivesCount; idx++) {
+                DataDirective *dd = &dataDirectives[idx];
+                if (strcmp(dd->type, ".data") == 0) {
+                    int *tmp = NULL;
+                    int cnt = process_data(dd->operands, (data_conv_t**)&tmp);
+                    if (cnt > 0) {
+                        required_words += cnt;
+                        free(tmp);
+                    }
+                } else if (strcmp(dd->type, ".string") == 0) {
+                    unsigned char *tmp = NULL;
+                    int cnt = process_string(dd->operands, (data_conv_t**)&tmp);
+                    if (cnt > 0) {
+                        required_words += cnt; /* includes terminating 0 */
+                        free(tmp);
+                    }
+                } else if (strcmp(dd->type, ".mat") == 0) {
+                    /* Parse matrix dimensions of form [rows][cols] at start of operands */
+                    const char *p = dd->operands;
+                    int rows = 0, cols = 0;
+                    /* find first '[' */
+                    while (*p && *p != '[') p++;
+                    if (*p == '[') {
+                        p++;
+                        rows = (int)strtol(p, (char**)&p, 10);
+                        /* find next '[' */
+                        while (*p && *p != '[') p++;
+                        if (*p == '[') {
+                            p++;
+                            cols = (int)strtol(p, (char**)&p, 10);
+                        }
+                    }
+                    if (rows > 0 && cols > 0) {
+                        required_words += rows * cols;
+                    } else {
+                        /* If parsing fails, conservatively treat as zero and report error later in process_data_directives */
+                    }
+                }
+            }
 
-    update_data_labels_address(label_table_head);
+            if (required_words > 0) {
+                data_image = (data_word*)malloc(sizeof(data_word) * required_words);
+                if (!data_image) {
+                    error_report_ex(ERR_SEV_ERROR, ERR_OUT_OF_MEMORY, file_name, 0, "data image");
+                    free(dataDirectives);
+                    free(code);
+                    free(entries);
+                    free(externs);
+                    return 1;
+                }
+                /* initialize to zero for safety */
+                { int z; for (z = 0; z < required_words; z++) { data_image[z].value = 0; data_image[z].src_line = 0; } }
+            }
+        }
+
+        process_data_directives(dataDirectives, dataDirectivesCount, data_base_addr, &data_image, &data_count, &DC, &label_table_head);
+    }
     if (!check_duplicate_labels(label_table_head)) {
         error_found = 1;
     }
-
-    /* Proceed to outputs only if no errors collected */
     if (error_found || error_get_error_count() > 0) {
         error_report_ex(ERR_SEV_ERROR, ERR_PASS1_FAILED, file_name, 0, NULL);
         free_label_list(label_table_head);
-        if (entries) free(entries);
-        if (externs) free(externs);
-        if (data_image) free(data_image);
+        free(code);
+        free(data_image);
+        free(entries);
+        free(externs);
+        free(dataDirectives);
         return 1;
     }
-
-    
-    basefile[0] = '\0';
-    get_basefile(file_name, basefile, sizeof(basefile));
-
-    exe_second_pass(code, code_count, label_table_head, entries, entries_count, externs, externs_count, basefile);
-    write_code_file(basefile, code, code_count, data_image, data_count);
-    print_memory_map(code_count, code, data_count, data_image, label_table_head);
-    print_symbol_table(label_table_head);
-
+    {
+        char basefile[128];
+        get_basefile(file_name, basefile, sizeof(basefile));
+        exe_second_pass(code, code_count, label_table_head, entries, entries_count, externs, externs_count, basefile);
+        write_code_file(basefile, code, code_count, data_image, data_count);
+        print_memory_map(code_count, code, data_count, data_image, label_table_head);
+        print_symbol_table(label_table_head);
+    }
     free_label_list(label_table_head);
-    if (entries) free(entries);
-    if (externs) free(externs);
-    if (data_image) free(data_image);
-    return error_found;
+    free(code);
+    free(data_image);
+    free(entries);
+    free(externs);
+    free(dataDirectives);
+    return 0;
 }
 

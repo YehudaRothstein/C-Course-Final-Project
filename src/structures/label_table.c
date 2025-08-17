@@ -8,7 +8,7 @@
 int insert_label(LabelNode **head, const char *label_name, int address, int is_code, int is_data, int is_extern) {
     LabelNode *new_node;
     if (find_label(*head, label_name) != NULL) {
-        error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, "%s", label_name);
+        error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, label_name);
         return 0;
     }
     new_node = (LabelNode *)malloc(sizeof(LabelNode));
@@ -59,7 +59,7 @@ int check_duplicate_labels(LabelNode *head) {
         LabelNode *other;
         for (other = curr->next; other; other = other->next) {
             if (strcmp(curr->name, other->name) == 0) {
-                error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, "%s", curr->name);
+                error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, curr->name);
                 return 0;
             }
         }

@@ -1,7 +1,9 @@
 #include "code_conversion.h"
 #include <string.h>
 
-OpcodeInfo opcode_table[] = {
+/* ההגדרה הזו מייצגת את כל נתוני הפקודות */
+/* היא מכילה את שם הפקודה, הקוד שלה, מספר האופרנדים החוקי, והכתובות האפשריים למקורות ויעדים */
+OpCodeData opcode_table[] = {
     {"mov",  0, 2, {1,1,1,1}, {0,1,1,1}},
     {"cmp",  1, 2, {1,1,1,1}, {1,1,1,1}},
     {"add",  2, 2, {1,1,1,1}, {0,1,1,1}},
@@ -19,24 +21,39 @@ OpcodeInfo opcode_table[] = {
     {"rts", 14, 0, {0,0,0,0}, {0,0,0,0}},
     {"stop",15, 0, {0,0,0,0}, {0,0,0,0}}
 };
-int num_opcodes = sizeof(opcode_table) / sizeof(OpcodeInfo);
 
-const OpcodeInfo* find_opcode(const char *name) {
+/* מספר הפקודות בטבלה */
+#define NUM_OPCODES 16
+
+/* הפונקציה הזו מחפשת פקודה בטבלה לפי השם שלה */
+const OpCodeData* findOpcodeByName(const char *name) {
     int i;
-    for (i = 0; i < num_opcodes; i++)
-        if (strcmp(name, opcode_table[i].name) == 0)
+    /* חיפוש פקודה בטבלה */
+    for (i = 0; i < NUM_OPCODES; i++) {
+        /* אם נמצא שם תואם, מחזירים את הנתונים של הפקודה */
+        if (strcmp(name, opcode_table[i].name) == 0) {
             return &opcode_table[i];
+        }
+    }
+    /* אם לא נמצאה פקודה עם השם הזה, מחזירים NULL */
     return NULL;
 }
 
-void to_binary_str(unsigned short value, char *out, int bits) {
+/* הפונקציה הזו ממירה ערך מספרי למחרוזת בינארית */
+/* היא מקבלת ערך מספרי, מיקום פלט ואורך ביטים */
+void valToBinStr(unsigned short value, char *out, int bits) {
+    /* ממיר את הערך למחרוזת בינארית באורך bits */
     int i;
-    for (i = bits-1; i >= 0; i--)
+    for (i = bits-1; i >= 0; i--) {
+        /* ממיר את הערך לביט בינארי ומכניס אותו למחרוזת */
+        /* דוגמה: אם value = 5 (בבינארי 0101) אז המחרוזת תהיה "0101" */
         out[bits-1-i] = ((value >> i) & 1) ? '1' : '0';
+    }
+    /* מסיים את המחרוזת עם תו סיום */
     out[bits] = '\0';
 }
-
-char get_are_char(int are) {
+/* הפונקציה הזו מחזירה את התו המתאים לARE */
+char getAREchar(int are) {
     switch (are) {
         case 0: return 'A';
         case 1: return 'R';

@@ -1,3 +1,4 @@
+/* C-Course Final Project - Assembler (authored by Yehuda) */
 #ifndef UTILS_H
 #define UTILS_H
 
@@ -8,22 +9,22 @@ typedef struct {
     char *operands;
     char *src_operand;
     char *dst_operand;
-} inst_parts;
+} InstParts;
 
 
 char* ltrim(char* str);
 
 int startsWithIgnoreCase(const char* str, const char* prefix);
 
-void remove_extra_spaces_str(char *str);
+void removeExtraSpacesStr(char *str);
 
-void remove_spaces_next_to_comma(char *str);
+void removeSpacesNextToComma(char *str);
 
-inst_parts parse_inst_line(char *line);
+InstParts parseInstLine(char *line);
 
-int is_instr(const char *opcode);
+int isInstr(const char *opcode);
 
 
-void free_inst_parts(inst_parts *inst);
+void freeInstParts(InstParts *inst);
 
 #endif

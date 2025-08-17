@@ -64,7 +64,8 @@
     "label_table.h": "c",
     "data_conv.h": "c",
     "memory_map_data.h": "c",
-    "other_table.h": "c"
+    "other_table.h": "c",
+    "stdlib.h": "c"
   },
   "C_Cpp.default.compilerPath": "C:/MinGW/bin/gcc.exe",
   "workbench.colorTheme": "Default Dark Modern"

@@ -6,7 +6,7 @@
 #include "code_conversion.h"
 
 void exe_second_pass(
-    code_conv *code, int code_count,
+    code_conv_t *code, int code_count,
     LabelNode *label_table,
     other_table *entries, int entries_count,
     other_table *externs, int externs_count,

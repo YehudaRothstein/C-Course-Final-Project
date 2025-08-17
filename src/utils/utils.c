@@ -1,11 +1,11 @@
+/* C-Course Final Project - Assembler (authored by Yehuda) */
 #include "utils.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>
 
-void remove_extra_spaces_str(char *str) {
-    
+void removeExtraSpacesStr(char *str) {
     char *src = str, *dst = str;
     int space = 0;
     while (*src) {
@@ -21,8 +21,7 @@ void remove_extra_spaces_str(char *str) {
     *dst = '\0';
 }
 
-void remove_spaces_next_to_comma(char *str) {
-    
+void removeSpacesNextToComma(char *str) {
     char *src = str, *dst = str;
     while (*src) {
         if ((*src == ' ' || *src == '\t') && (src > str && (*(src-1) == ',' || *(src+1) == ','))) {
@@ -34,7 +33,6 @@ void remove_spaces_next_to_comma(char *str) {
     *dst = '\0';
 }
 
-
 static char *substrdup(const char *start, size_t len) {
     char *s = (char *)malloc(len + 1);
     if (!s) return NULL;
@@ -43,9 +41,8 @@ static char *substrdup(const char *start, size_t len) {
     return s;
 }
 
-
-inst_parts parse_inst_line(char *line) {
-    inst_parts inst;
+InstParts parseInstLine(char *line) {
+    InstParts inst;
     char *p;
     char *colon;
     char *after_colon = NULL;
@@ -59,9 +56,8 @@ inst_parts parse_inst_line(char *line) {
 
     p = line;
     while (isspace((unsigned char)*p)) p++;
-    if (*p == '\0' || *p == ';') return inst; 
+    if (*p == '\0' || *p == ';') return inst;
 
-    
     colon = strchr(p, ':');
     if (colon && (colon > p)) {
         const char *label_start = p;
@@ -72,22 +68,18 @@ inst_parts parse_inst_line(char *line) {
         while (isspace((unsigned char)*p)) p++;
     }
 
-    
     opcode_start = p;
     while (*p && !isspace((unsigned char)*p)) p++;
     if (p > opcode_start) {
         inst.opcode = substrdup(opcode_start, (size_t)(p - opcode_start));
     } else {
-        
         return inst;
     }
     while (isspace((unsigned char)*p)) p++;
 
-    
     if (*p) {
         size_t len;
         inst.operands = substrdup(p, strlen(p));
-        
         len = strlen(inst.operands);
         while (len > 0 && isspace((unsigned char)inst.operands[len-1])) {
             inst.operands[--len] = '\0';
@@ -97,8 +89,7 @@ inst_parts parse_inst_line(char *line) {
     return inst;
 }
 
-
-void free_inst_parts(inst_parts *inst) {
+void freeInstParts(InstParts *inst) {
     if (!inst) return;
     if (inst->label) { free(inst->label); inst->label = NULL; }
     if (inst->opcode) { free(inst->opcode); inst->opcode = NULL; }
@@ -107,8 +98,7 @@ void free_inst_parts(inst_parts *inst) {
     if (inst->dst_operand) { free(inst->dst_operand); inst->dst_operand = NULL; }
 }
 
-int is_instr(const char *opcode) {
-    
+int isInstr(const char *opcode) {
     return opcode && opcode[0] == '.';
 }
 

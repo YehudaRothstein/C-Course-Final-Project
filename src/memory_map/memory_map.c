@@ -44,7 +44,7 @@ void memory_map_print(const MemoryMap *map) {
     printf("Memory Map (used cells):\n");
     for (i = 0; i < map->size; ++i) {
         if (map->cells[i].used) {
-            printf("%03zu: %04x\n", i, map->cells[i].value);
+            printf("%03lu: %04x\n", (unsigned long)i, map->cells[i].value);
         }
     }
 }

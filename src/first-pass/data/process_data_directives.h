@@ -10,12 +10,12 @@
  * Builds the data image, updates DC and inserts data labels into the label table.
  */
 void process_data_directives(
-    DataDirective *data_directives,
-    int data_directives_count,
-    int data_base_addr,
-    data_word **data_image_ptr,
-    int *data_count_ptr,
-    int *DC_ptr,
-    LabelNode **label_table_head_ptr);
+    DataDirective *data_directives,    /* Array of data directives collected during the first pass */
+    int data_directives_count,        /* Number of data directives in the array */
+    int data_base_addr,              /* Base address for the data image */
+    data_word **data_image_ptr,      /* Pointer to the data image */
+    int *data_count_ptr,             /* Pointer to the data count */
+    int *DC_ptr,                     /* Pointer to the current value of DC (data counter) */
+    LabelNode **label_table_head_ptr); /* Pointer to the head of the label table */
 
 #endif /* PROCESS_DATA_DIRECTIVES_H */
