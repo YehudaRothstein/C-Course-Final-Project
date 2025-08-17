@@ -147,6 +147,14 @@ int exe_first_pass(char *file_name) {
                 } else if (strcmp(inst.opcode, ".entry") == 0) {
                     add_to_other_table(&entries, &entries_count, inst.operands);
                 } else if (strcmp(inst.opcode, ".data") == 0 || strcmp(inst.opcode, ".string") == 0 || strcmp(inst.opcode, ".mat") == 0) {
+                    /* Enforce adjacency for .mat: must be ".mat[" (allow spaces inside brackets) */
+                    if (strcmp(inst.opcode, ".mat") == 0) {
+                        if (strstr(line_buf, ".mat[") == NULL) {
+                            error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, file_name, line_num, "'.mat' must be followed immediately by '['");
+                            freeInstParts(&inst);
+                            continue;
+                        }
+                    }
                     if (dataDirectivesCount >= dataDirectivesCap) { int newCap = dataDirectivesCap ? dataDirectivesCap * 2 : 16; DataDirective *tmp = (DataDirective*)realloc(dataDirectives, sizeof(DataDirective) * newCap); if (!tmp) { freeInstParts(&inst); fclose(fp); free(code); free(data_image); free(entries); free(externs); free(dataDirectives); return 1; } dataDirectives = tmp; dataDirectivesCap = newCap; }
                     {
                         DataDirective *dd = &dataDirectives[dataDirectivesCount++];

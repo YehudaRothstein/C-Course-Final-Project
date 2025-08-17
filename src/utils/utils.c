@@ -47,6 +47,7 @@ InstParts parseInstLine(char *line) {
     char *colon;
     char *after_colon = NULL;
     char *opcode_start;
+    char *token_end; /* end of the first non-whitespace token */
 
     inst.label = NULL;
     inst.opcode = NULL;
@@ -70,6 +71,26 @@ InstParts parseInstLine(char *line) {
 
     opcode_start = p;
     while (*p && !isspace((unsigned char)*p)) p++;
+    token_end = p;
+
+    /* Special-case adjacency syntax for .mat: allow ".mat[rows][cols]" */
+    if (token_end > opcode_start && (size_t)(token_end - opcode_start) >= 5 && strncmp(opcode_start, ".mat[", 5) == 0) {
+        const char *br = opcode_start + 4; /* points to '[' */
+        size_t op_len;
+        /* opcode is exactly ".mat" */
+        inst.opcode = substrdup(".mat", 4);
+        /* operands are from '[' until end of line (includes any following initializers) */
+        inst.operands = substrdup(br, strlen(br));
+        /* Trim trailing whitespace from operands */
+        if (inst.operands) {
+            op_len = strlen(inst.operands);
+            while (op_len > 0 && isspace((unsigned char)inst.operands[op_len - 1])) {
+                inst.operands[--op_len] = '\0';
+            }
+        }
+        return inst;
+    }
+
     if (p > opcode_start) {
         inst.opcode = substrdup(opcode_start, (size_t)(p - opcode_start));
     } else {
