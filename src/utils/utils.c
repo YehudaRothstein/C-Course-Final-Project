@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>
+#include "../error-handler/error-handler.h"
 
 void removeExtraSpacesStr(char *str) {
     char *src = str, *dst = str;
@@ -134,4 +135,55 @@ int startsWithIgnoreCase(const char* str, const char* prefix) {
         prefix++;
     }
     return *prefix == '\0';
+}
+
+/* Minimal label validation for .extern/.entry and labels before colon */
+int legal_label_decl(const char *label, int *error_code) {
+    const char *p;
+    int len;
+    if (error_code) *error_code = 0;
+    if (!label || !*label) { if (error_code) *error_code = ERR_LABEL_EMPTY; return 0; }
+    if (!isalpha((unsigned char)label[0])) { if (error_code) *error_code = ERR_LABEL_NOT_START_ALPHA; return 0; }
+    len = (int)strlen(label);
+    if (len > 30) { if (error_code) *error_code = ERR_LABEL_TOO_LONG; return 0; }
+    p = label;
+    while (*p) {
+        if (!isalnum((unsigned char)*p)) { if (error_code) *error_code = ERR_LABEL_NON_ALNUM; return 0; }
+        p++;
+    }
+    /* Disallow register names r0..r7 and opcodes names as labels would be ideal; keep minimal here */
+    return 1;
+}
+
+void print_external_error(int error_code, const char *file, int line) {
+    /* Map a few common error codes through error_report_ex for consistency */
+    switch (error_code) {
+        case ERR_LABEL_EMPTY:
+        case ERR_LABEL_NOT_START_ALPHA:
+        case ERR_LABEL_TOO_LONG:
+        case ERR_LABEL_NON_ALNUM:
+            error_report_ex(ERR_SEV_ERROR, (ErrorCode)error_code, file, line, NULL);
+            break;
+        default:
+            error_report_ex(ERR_SEV_ERROR, ERR_LABEL_REDEFINED, file, line, NULL);
+            break;
+    }
+}
+
+void get_basefile(const char *path, char *out_base, size_t out_size) {
+    const char *slash = NULL;
+    const char *back = NULL;
+    const char *base;
+    const char *dot;
+    size_t len;
+    if (!path || !out_base || out_size == 0) return;
+    slash = strrchr(path, '/');
+    back = strrchr(path, '\\');
+    base = (slash && back) ? (slash > back ? slash + 1 : back + 1)
+                           : (slash ? slash + 1 : (back ? back + 1 : path));
+    dot = strrchr(base, '.');
+    len = dot ? (size_t)(dot - base) : strlen(base);
+    if (len >= out_size) len = out_size - 1;
+    memcpy(out_base, base, len);
+    out_base[len] = '\0';
 }

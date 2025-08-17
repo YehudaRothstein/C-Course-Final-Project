@@ -28,4 +28,7 @@ int check_duplicate_labels(LabelNode *head);
 
 void free_label_list(LabelNode *head);
 
+
+void print_symbol_table(LabelNode *head);
+
 #endif
