@@ -56,7 +56,8 @@ void process_data_directives(
                         while (*p && isspace((unsigned char)*p)) p++;
                         val = strtol(p, &end, 10);
                         if (p != end) {
-                            if (data_count >= MEMORY_SIZE) {
+                            /* Address-based cap: last valid address is 255 (MEMORY_SIZE-1) */
+                            if ((data_base_addr + DC) >= MEMORY_SIZE) {
                                 error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".data exceeds memory size");
                                 return; /* stop further corruption */
                             }
@@ -81,11 +82,17 @@ void process_data_directives(
                 if (*p == '"') {
                     p++;
                     while (*p && *p != '"') {
-                        if (data_count >= MEMORY_SIZE) {
+                        unsigned char ch = (unsigned char)*p; /* C89: declare at block start */
+                        /* Enforce printable ASCII range 32..126 inclusive */
+                        if (ch < 32 || ch > 126) {
+                            error_report_ex(ERR_SEV_ERROR, ERR_STRING_BAD_CHAR, NULL, dd->src_line, NULL);
+                            return;
+                        }
+                        if ((data_base_addr + DC) >= MEMORY_SIZE) {
                             error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".string exceeds memory size");
                             return;
                         }
-                        data_image[base_dc].value = (unsigned short)(unsigned char)*p;
+                        data_image[base_dc].value = (unsigned short)ch;
                         data_image[base_dc].src_line = dd->src_line;
                         base_dc++;
                         DC++;
@@ -93,7 +100,7 @@ void process_data_directives(
                         p++;
                     }
                     /* null terminator */
-                    if (data_count >= MEMORY_SIZE) {
+                    if ((data_base_addr + DC) >= MEMORY_SIZE) {
                         error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".string exceeds memory size");
                         return;
                     }
@@ -146,7 +153,7 @@ void process_data_directives(
                             char *end;
                             long val = strtol(p, &end, 10);
                             if (p == end) break; /* no more numbers */
-                            if (data_count >= MEMORY_SIZE) {
+                            if ((data_base_addr + DC) >= MEMORY_SIZE) {
                                 error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".mat exceeds memory size");
                                 return;
                             }
@@ -161,7 +168,7 @@ void process_data_directives(
                         }
                     }
                     while (filled < total) {
-                        if (data_count >= MEMORY_SIZE) {
+                        if ((data_base_addr + DC) >= MEMORY_SIZE) {
                             error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".mat exceeds memory size");
                             return;
                         }

@@ -170,7 +170,16 @@ int exe_first_pass(char *file_name) {
                 {
                     int emitted = emit_instruction(&inst, code, code_count, line_num, &label_table_head, &error_found, file_name);
                     if (emitted < 0) { error_found = 1; }
-                    else { code_count += emitted; }
+                    else {
+                        /* Cap absolute code addresses at 255: IC starts at 100 */
+                        if ((100 + code_count + emitted) > MEMORY_SIZE) {
+                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, file_name, line_num, "code exceeds memory size");
+                            error_found = 1;
+                            /* do not increase code_count; ignore this instruction for output */
+                        } else {
+                            code_count += emitted;
+                        }
+                    }
                 }
             }
             freeInstParts(&inst);
@@ -224,7 +233,13 @@ int exe_first_pass(char *file_name) {
                 }
             }
 
-            if (required_words > 0) {
+            /* Cap absolute addresses to 255 (MEMORY_SIZE - 1) */
+            if (data_base_addr >= MEMORY_SIZE || (data_base_addr + required_words) > MEMORY_SIZE) {
+                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, file_name, 0, "program exceeds memory size");
+                error_found = 1;
+            }
+
+            if (!error_found && required_words > 0) {
                 data_image = (data_word*)malloc(sizeof(data_word) * required_words);
                 if (!data_image) {
                     error_report_ex(ERR_SEV_ERROR, ERR_OUT_OF_MEMORY, file_name, 0, "data image");
@@ -239,7 +254,9 @@ int exe_first_pass(char *file_name) {
             }
         }
 
-        process_data_directives(dataDirectives, dataDirectivesCount, data_base_addr, &data_image, &data_count, &DC, &label_table_head);
+        if (!error_found) {
+            process_data_directives(dataDirectives, dataDirectivesCount, data_base_addr, &data_image, &data_count, &DC, &label_table_head);
+        }
     }
     if (!check_duplicate_labels(label_table_head)) {
         error_found = 1;
