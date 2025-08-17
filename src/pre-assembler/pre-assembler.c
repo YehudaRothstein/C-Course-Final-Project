@@ -18,6 +18,11 @@ static FILE *openOutputFile(const char *outputPath, FILE *inputFile);
 static int processLines(FILE *inputFile, FILE *outputFile);
 static int handleLine(char *line, int *inMacro, char *macroName, char *macroContent, int lineNumber);
 
+/* Helper to check .as extension locally */
+static int ends_with_as_ext(const char *s) {
+    size_t n = strlen(s);
+    return (n >= 3 && s[n-3]=='.' && s[n-2]=='a' && s[n-1]=='s');
+}
 
 int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOutPathOut, size_t macroOutPathOutSize) {
     FILE *inputFile;
@@ -28,14 +33,33 @@ int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOu
     const char *base;
     const char *dot;
     size_t len;
+    char normalized[512];
 
-    inputFile = openInputFile(inputPath);
+    /* Normalize input path: append .as if missing */
+    if (ends_with_as_ext(inputPath)) {
+        strncpy(normalized, inputPath, sizeof(normalized)-1);
+        normalized[sizeof(normalized)-1] = '\0';
+    } else {
+        size_t cap = sizeof(normalized);
+        size_t inlen = strlen(inputPath);
+        if (inlen >= cap) inlen = cap - 1;
+        memcpy(normalized, inputPath, inlen);
+        normalized[inlen] = '\0';
+        if (inlen + 3 < cap) {
+            normalized[inlen++] = '.';
+            normalized[inlen++] = 'a';
+            normalized[inlen++] = 's';
+            normalized[inlen] = '\0';
+        }
+    }
+
+    inputFile = openInputFile(normalized);
     if (!inputFile) return ERR_FILE_NOT_FOUND;
 
     outputFile = openOutputFile(outputPath, inputFile);
     if (!outputFile) return ERR_OUTPUT_FOLDER_MISSING;
 
-    printf("assembling: %s -> %s\n", inputPath, outputPath);
+    printf("assembling: %s -> %s\n", normalized, outputPath);
 
     result = processLines(inputFile, outputFile);
 
@@ -43,20 +67,19 @@ int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOu
     fclose(outputFile);
 
     
-    slash = strrchr(inputPath, '/');
-    base = slash ? slash + 1 : inputPath;
+    slash = strrchr(normalized, '/');
+    base = slash ? slash + 1 : normalized;
     
     dot = strrchr(base, '.');
     len = dot ? (size_t)(dot - base) : strlen(base);
     
-    sprintf(macroOutPath, "outputs/%.*s.as", (int)len, base);
+    sprintf(macroOutPath, "outputs/%.*s.am", (int)len, base);
 
-    spreadMacros(inputPath, macroOutPath);
+    spreadMacros(normalized, macroOutPath);
 
-    
-    remove("outputs/macros.txt");
+    /* Do not remove any shared macros log; create per-file logs instead */
+    /* remove("outputs/macros.txt"); */
 
-    
     if (macroOutPathOut && macroOutPathOutSize > 0) {
         strncpy(macroOutPathOut, macroOutPath, macroOutPathOutSize - 1);
         macroOutPathOut[macroOutPathOutSize - 1] = '\0';

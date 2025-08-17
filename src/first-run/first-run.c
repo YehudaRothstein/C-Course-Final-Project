@@ -72,6 +72,7 @@ static int grow_directives_if_needed(DataDirective ***directives,
     return 1;
 }
 
+#if 0 /* Unused legacy helper; keep for reference, disable to silence -Wall */
 static int ensure_code_capacity(code_conv_t ***codeBuffer,
                                 int *codeCapacity,
                                 int *errorFound) {
@@ -95,6 +96,7 @@ static int ensure_code_capacity(code_conv_t ***codeBuffer,
 
     return 1;
 }
+#endif
 
 static void count_words_for_directive(const DataDirective *directive,
                                       int *requiredWords) {
@@ -291,6 +293,7 @@ static void dispatch_instruction_or_directive(const char *originalLine,
 }
 
 /* --- Original helpers kept, reformatted and simplified where helpful --- */
+#if 0 /* Unused legacy helper; keep for reference, disable to silence -Wall */
 static int handle_directive(const char *originalLine,
                             InstParts *instParts,
                             DataDirective **directives, int *directivesCount, int *directivesCapacity,
@@ -330,6 +333,7 @@ static void handle_instruction_line(const InstParts *instParts,
                                           errorFound);
     }
 }
+#endif
 
 static int compute_required_and_allocate(DataDirective *directives, int directivesCount,
                                          int dataBaseAddress,
@@ -498,21 +502,8 @@ int exe_first_pass(char *file_name) {
         lineNumber++;
 
         line_len = (int)strlen(lineBuffer);
-
-        if (line_len >= 1 && (lineBuffer[line_len - 1] == '\n' || lineBuffer[line_len - 1] == '\r')) {
-            lineBuffer[line_len - 1] = '\0';
-        }
-
-        removeExtraSpacesStr(lineBuffer);
-        removeSpacesNextToComma(lineBuffer);
-
-        if ((int)strlen(lineBuffer) > 80) {
-            error_report_ex(ERR_SEV_ERROR, ERR_LINE_TOO_LONG, file_name, lineNumber, NULL);
-            continue;
-        }
-
-        if (lineBuffer[0] == '\0' || lineBuffer[0] == ';') {
-            continue;
+        while (line_len > 0 && (lineBuffer[line_len - 1] == '\n' || lineBuffer[line_len - 1] == '\r')) {
+            lineBuffer[--line_len] = '\0';
         }
 
         process_single_line(file_name,
@@ -536,34 +527,23 @@ int exe_first_pass(char *file_name) {
                         &labelTable,
                         &errorFound);
 
-    if (!check_duplicate_labels(labelTable)) {
-        errorFound = 1;
+    if (!errorFound) {
+        finalize_outputs(file_name,
+                         codeBuffer, codeCount,
+                         dataImage, dataCount,
+                         labelTable,
+                         entryTable, entryCount,
+                         externalTable, externalCount);
     }
 
-    /*אם נמצאה שגיאה או שיש שגיאות נוספות*/
-    if (errorFound || error_get_error_count() > 0) {
-        error_report_ex(ERR_SEV_ERROR, ERR_PASS1_FAILED, file_name, 0, NULL);
-
-        free_label_list(labelTable);
-        free(codeBuffer);
-        free(dataImage);
-        free(entryTable);
-        free(externalTable);
-        free(directives);
-
-        return 1;
-    }
-
-    finalize_outputs(file_name, codeBuffer, codeCount, dataImage, dataCount,
-                     labelTable, entryTable, entryCount, externalTable, externalCount);
-
-    free_label_list(labelTable);
-    free(codeBuffer);
+    free(directives);
     free(dataImage);
+    /* other_table is a dynamic array -> free directly */
     free(entryTable);
     free(externalTable);
-    free(directives);
+    /* label table is a linked list -> use provided free function */
+    free_label_list(labelTable);
 
-    return 0;
+    return errorFound ? 1 : 0;
 }
 

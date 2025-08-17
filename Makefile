@@ -1,10 +1,7 @@
-CC = gcc
-CFLAGS = -Wall -ansi -pedantic -Isrc -Isrc/utils -Isrc/structures -Isrc/first-run -Isrc/first-pass -Isrc/first-pass/data -Isrc/first-pass/emit -Isrc/first-pass/output -Isrc/first-pass/print -Isrc/second-run -Isrc/error-handler -Isrc/code_conversion -Isrc/memory_map -Isrc/pre-assembler
-OBJDIR = build
-BINDIR = bin
+FLAGS = -Wall -ansi -pedantic -Isrc -Isrc/utils -Isrc/structures -Isrc/first-run -Isrc/first-pass -Isrc/first-pass/data -Isrc/first-pass/emit -Isrc/first-pass/output -Isrc/first-pass/print -Isrc/second-run -Isrc/error-handler -Isrc/code_conversion -Isrc/memory_map -Isrc/pre-assembler
 
 SRCS = \
- src/main.c \
+ src/assembler.c \
  src/pre-assembler/pre-assembler.c \
  src/pre-assembler/spread-macros.c \
  src/utils/utils.c \
@@ -24,31 +21,12 @@ SRCS = \
  src/memory_map/memory_map_data.c \
  src/memory_map/memory_map.c
 
-OBJS = $(patsubst src/%.c,$(OBJDIR)/src/%.o,$(SRCS))
+all: assembler
 
-TARGET = $(BINDIR)/assembler
-
-TOOLS = $(BINDIR)/decode_ob
-TOOL_SRCS = src/tools/decode_ob.c
-TOOL_OBJS = $(patsubst src/%.c,$(OBJDIR)/src/%.o,$(TOOL_SRCS))
-
-all: create_dirs $(TARGET) $(TOOLS)
-
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -o $@
-
-$(BINDIR)/decode_ob: $(TOOL_OBJS)
-	$(CC) $(CFLAGS) $^ -o $@
-
-# Generic rule to compile any C file under src/ into a mirrored path under build/
-$(OBJDIR)/src/%.o: src/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-create_dirs:
-	@mkdir -p $(BINDIR) $(OBJDIR)
+assembler:
+	gcc $(FLAGS) $(SRCS) -o assembler
 
 clean:
-	rm -rf $(OBJDIR) $(BINDIR)
+	rm -f assembler
 
-.PHONY: all clean create_dirs
+.PHONY: all clean

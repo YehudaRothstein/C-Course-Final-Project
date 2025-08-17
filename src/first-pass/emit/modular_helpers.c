@@ -229,7 +229,8 @@ static int prepareOperands(const OpCodeData *op, const char *operands, char *sou
 
     found = parseOperandsToBuffers(operands, source, sourceSize, destination, destinationSize);
     if (found != op->operand_count) {
-        snprintf(buf, sizeof(buf), "expected %d got %d", op->operand_count, found);
+        /* ANSI C89: use sprintf instead of snprintf */
+        sprintf(buf, "expected %d got %d", op->operand_count, found);
         error_report_ex(ERR_SEV_ERROR, ERR_OPERAND_COUNT_MISMATCH, fileName, lineNumber, buf);
         *errorFound = 1;
         return 0;
@@ -281,7 +282,8 @@ int assembleInstruction(InstParts *inst, code_conv_t *code, int codeCount, int l
     op = findOpcodeByName(inst->opcode);
     if (!op) {
         *errorFound = 1;
-        snprintf(buf, sizeof(buf), "opcode '%s'", inst->opcode);
+        /* ANSI C89: use sprintf instead of snprintf */
+        sprintf(buf, "opcode '%s'", inst->opcode);
         error_report_ex(ERR_SEV_ERROR, ERR_OPCODE_UNKNOWN, fileName, lineNumber, buf);
         return 0;
     }
