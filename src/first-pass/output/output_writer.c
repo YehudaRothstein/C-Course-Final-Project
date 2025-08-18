@@ -3,6 +3,7 @@
 #include "output/output_writer.h"
 #include "code_conversion.h"
 #include "../../error-handler/error-handler.h"
+#include "../../utils/utils.h"
 
 void write_code_file(const char *out_filename, code_conv_t *code, int code_count, data_word *data_image, int data_count) {
     char ob_filename[300];
@@ -11,13 +12,32 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
     const char *dot = strrchr(base, '.');
     size_t len = dot ? (size_t)(dot - base) : strlen(base);
     char base_name[256];
+    char out_dir[512];
     int i;
     int d;
 
     strncpy(base_name, base, len);
     base_name[len] = '\0';
 
-    sprintf(ob_filename, "outputs/%s.ob", base_name);
+    /* Ensure per-file directory exists and build <dir>/<base>.ob */
+    ensure_output_dir(base_name, out_dir, sizeof(out_dir));
+    {
+        size_t pos = 0, j;
+        size_t cap = sizeof(ob_filename);
+        for (j = 0; out_dir[j] && pos + 1 < cap; j++) ob_filename[pos++] = out_dir[j];
+#if defined(_WIN32) || defined(_WIN64)
+        if (pos + 1 < cap) ob_filename[pos++] = '\\';
+#else
+        if (pos + 1 < cap) ob_filename[pos++] = '/';
+#endif
+        for (j = 0; base_name[j] && pos + 1 < cap; j++) ob_filename[pos++] = base_name[j];
+        {
+            const char *suf = ".ob";
+            for (j = 0; suf[j] && pos + 1 < cap; j++) ob_filename[pos++] = suf[j];
+        }
+        ob_filename[pos] = '\0';
+    }
+
     {
         FILE *fp = fopen(ob_filename, "w");
         if (!fp) {
@@ -94,7 +114,21 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
     {
         char dec_filename[300];
         FILE *fdec;
-        sprintf(dec_filename, "outputs/%s.bin", base_name);
+        size_t pos3 = 0, m;
+        size_t cap3 = sizeof(dec_filename);
+        for (m = 0; out_dir[m] && pos3 + 1 < cap3; m++) dec_filename[pos3++] = out_dir[m];
+#if defined(_WIN32) || defined(_WIN64)
+        if (pos3 + 1 < cap3) dec_filename[pos3++] = '\\';
+#else
+        if (pos3 + 1 < cap3) dec_filename[pos3++] = '/';
+#endif
+        for (m = 0; base_name[m] && pos3 + 1 < cap3; m++) dec_filename[pos3++] = base_name[m];
+        {
+            const char *suf3 = ".bin";
+            for (m = 0; suf3[m] && pos3 + 1 < cap3; m++) dec_filename[pos3++] = suf3[m];
+        }
+        dec_filename[pos3] = '\0';
+
         fdec = fopen(dec_filename, "w");
         if (!fdec) { error_report_ex(ERR_SEV_ERROR, ERR_OUTPUT_BIN_WRITE_FAIL, dec_filename, 0, NULL); return; }
         for (i = 0; i < code_count; i++) {

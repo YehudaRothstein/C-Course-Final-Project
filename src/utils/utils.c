@@ -187,3 +187,13 @@ void get_basefile(const char *path, char *out_base, size_t out_size) {
     memcpy(out_base, base, len);
     out_base[len] = '\0';
 }
+
+int ensure_output_dir(const char *base_name, char *out_dir, size_t out_dir_size) {
+    /* No dedicated output folder: write files into current directory. */
+    (void)base_name; /* unused */
+    if (!out_dir || out_dir_size == 0) return 0;
+    if (out_dir_size < 2) return 0;
+    out_dir[0] = '.';
+    out_dir[1] = '\0';
+    return 1;
+}

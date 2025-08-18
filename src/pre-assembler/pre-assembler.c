@@ -28,11 +28,6 @@ int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOu
     FILE *inputFile;
     FILE *outputFile;
     int result;
-    char macroOutPath[512];
-    const char *slash;
-    const char *base;
-    const char *dot;
-    size_t len;
     char normalized[512];
 
     /* Normalize input path: append .as if missing */
@@ -66,23 +61,10 @@ int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOu
     fclose(inputFile);
     fclose(outputFile);
 
-    
-    slash = strrchr(normalized, '/');
-    base = slash ? slash + 1 : normalized;
-    
-    dot = strrchr(base, '.');
-    len = dot ? (size_t)(dot - base) : strlen(base);
-    
-    sprintf(macroOutPath, "outputs/%.*s.am", (int)len, base);
-
-    spreadMacros(normalized, macroOutPath);
-
-    /* Do not remove any shared macros log; create per-file logs instead */
-    /* remove("outputs/macros.txt"); */
-
+    /* If caller provided a target .am path, spread macros into that exact path */
     if (macroOutPathOut && macroOutPathOutSize > 0) {
-        strncpy(macroOutPathOut, macroOutPath, macroOutPathOutSize - 1);
-        macroOutPathOut[macroOutPathOutSize - 1] = '\0';
+        /* macroOutPathOut already contains the desired <dir>/<base>.am (built by main). */
+        spreadMacros(normalized, macroOutPathOut);
     }
 
     return result;
