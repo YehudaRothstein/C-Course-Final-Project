@@ -4,7 +4,7 @@
 
 #include <stddef.h>
 
-
+/* חלקי הוראה */
 typedef struct {
     char *label;
     char *opcode;
@@ -29,15 +29,12 @@ int isInstr(const char *opcode);
 
 void freeInstParts(InstParts *inst);
 
-/* Label validation and error printing helpers */
+/* בודק את תוויות */
 int legal_label_decl(const char *label, int *error_code);
 void print_external_error(int error_code, const char *file, int line);
 
-/* Build base filename without extension (used for outputs) */
 void get_basefile(const char *path, char *out_base, size_t out_size);
 
-/* Build and ensure per-file output directory exists. Returns 1 on success, 0 on failure.
-   out_dir will contain the directory path in the form "<base>-outputs". */
 int ensure_output_dir(const char *base_name, char *out_dir, size_t out_dir_size);
 
 #endif
