@@ -9,7 +9,6 @@ SRCS = \
  src/error-handler/error-handler.c \
  src/code_conversion/code_conversion.c \
  src/first-run/first-run.c \
- src/first-pass/data/data_conv.c \
  src/first-pass/data/process_data_directives.c \
  src/second-run/second-run.c \
  src/first-pass/emit/modular_helpers.c \

@@ -25,11 +25,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
         size_t pos = 0, j;
         size_t cap = sizeof(ob_filename);
         for (j = 0; out_dir[j] && pos + 1 < cap; j++) ob_filename[pos++] = out_dir[j];
-#if defined(_WIN32) || defined(_WIN64)
-        if (pos + 1 < cap) ob_filename[pos++] = '\\';
-#else
         if (pos + 1 < cap) ob_filename[pos++] = '/';
-#endif
         for (j = 0; base_name[j] && pos + 1 < cap; j++) ob_filename[pos++] = base_name[j];
         {
             const char *suf = ".ob";
@@ -44,6 +40,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             error_report_ex(ERR_SEV_ERROR, ERR_OUTPUT_OB_WRITE_FAIL, ob_filename, 0, NULL);
             return;
         }
+        /* Header: lengths (code_count, data_count) in special base-4 (trim leading 'a') */
         {
             char code_count_base4[6], data_count_base4[6];
             for (d = 4; d >= 0; d--) {
@@ -70,7 +67,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             unsigned short code_val = (code[i].value & 0x3FC) | are_bits;
             char code_base4[6];
             char addr_base4[5];
-            /* address in base-4 (4 digits) without bit shifting */
+            /* address in base-4 (4 digits) */
             {
                 int n = addr;
                 for (d = 3; d >= 0; d--) {
@@ -92,7 +89,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             unsigned short data_val = data_image[i].value & 0x3FF;
             char data_base4[6];
             char addr_base4[5];
-            /* address in base-4 (4 digits) without bit shifting */
+            /* address in base-4 (4 digits) */
             {
                 int n2 = addr;
                 for (d = 3; d >= 0; d--) {
@@ -110,46 +107,5 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             fprintf(fp, "%s %s\n", addr_base4, data_base4);
         }
         fclose(fp);
-    }
-    {
-        char dec_filename[300];
-        FILE *fdec;
-        size_t pos3 = 0, m;
-        size_t cap3 = sizeof(dec_filename);
-        for (m = 0; out_dir[m] && pos3 + 1 < cap3; m++) dec_filename[pos3++] = out_dir[m];
-#if defined(_WIN32) || defined(_WIN64)
-        if (pos3 + 1 < cap3) dec_filename[pos3++] = '\\';
-#else
-        if (pos3 + 1 < cap3) dec_filename[pos3++] = '/';
-#endif
-        for (m = 0; base_name[m] && pos3 + 1 < cap3; m++) dec_filename[pos3++] = base_name[m];
-        {
-            const char *suf3 = ".bin";
-            for (m = 0; suf3[m] && pos3 + 1 < cap3; m++) dec_filename[pos3++] = suf3[m];
-        }
-        dec_filename[pos3] = '\0';
-
-        fdec = fopen(dec_filename, "w");
-        if (!fdec) { error_report_ex(ERR_SEV_ERROR, ERR_OUTPUT_BIN_WRITE_FAIL, dec_filename, 0, NULL); return; }
-        for (i = 0; i < code_count; i++) {
-            int addr = 100 + i;
-            unsigned short are_bits = (code[i].are == 0 ? 0 : (code[i].are == 1 ? 2 : 1));
-            unsigned short val = (code[i].value & 0x3FC) | are_bits;
-            char bits[11];
-            int b;
-            for (b = 9; b >= 0; b--) bits[9 - b] = ((val >> b) & 1) ? '1' : '0';
-            bits[10] = '\0';
-            fprintf(fdec, "%d %s\n", addr, bits);
-        }
-        for (i = 0; i < data_count; i++) {
-            int addr = 100 + code_count + i;
-            unsigned short val = data_image[i].value & 0x3FF;
-            char bits[11];
-            int b2;
-            for (b2 = 9; b2 >= 0; b2--) bits[9 - b2] = ((val >> b2) & 1) ? '1' : '0';
-            bits[10] = '\0';
-            fprintf(fdec, "%d %s\n", addr, bits);
-        }
-        fclose(fdec);
     }
 }

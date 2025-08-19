@@ -2,30 +2,31 @@
 #define MEMORY_MAP_H
 
 #include <stddef.h>
-#include <stdint.h>
+#include <limits.h>
 
 #define MEMORY_SIZE 256
 
+typedef unsigned short word_t; 
 
 typedef struct {
-    uint16_t value; 
-    int used;       
+    word_t value;  /* 10 ביטים */
+    int used;      /* דגל בוליאני */
 } MemoryCell;
 
 
 typedef struct {
     MemoryCell cells[MEMORY_SIZE];
-    size_t size; 
+    size_t size; /* האינדקס הגבוה ביותר בשימוש + 1 */
 } MemoryMap;
 
 
 void memory_map_init(MemoryMap *map);
 
 
-void memory_map_set(MemoryMap *map, size_t address, uint16_t value);
+void memory_map_set(MemoryMap *map, size_t address, word_t value);
 
 
-uint16_t memory_map_get(const MemoryMap *map, size_t address);
+word_t memory_map_get(const MemoryMap *map, size_t address);
 
 
 void memory_map_mark_used(MemoryMap *map, size_t address);

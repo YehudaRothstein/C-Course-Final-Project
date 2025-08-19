@@ -2,13 +2,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#define WORD_MASK 0x3FF /* 10 bits */
+
+/* אתחול מפה זיכרון */
 void memory_map_init(MemoryMap *map) {
     memset(map, 0, sizeof(MemoryMap));
 }
 
-void memory_map_set(MemoryMap *map, size_t address, uint16_t value) {
+/* עדכון כתובת במפה */
+void memory_map_set(MemoryMap *map, size_t address, word_t value) {
     if (address < MEMORY_SIZE) {
-        map->cells[address].value = value & 0x3FF; 
+    map->cells[address].value = (word_t)(value & WORD_MASK);
         map->cells[address].used = 1;
         if (address + 1 > map->size) {
             map->size = address + 1;
@@ -16,7 +20,7 @@ void memory_map_set(MemoryMap *map, size_t address, uint16_t value) {
     }
 }
 
-uint16_t memory_map_get(const MemoryMap *map, size_t address) {
+word_t memory_map_get(const MemoryMap *map, size_t address) {
     if (address < MEMORY_SIZE && map->cells[address].used) {
         return map->cells[address].value;
     }

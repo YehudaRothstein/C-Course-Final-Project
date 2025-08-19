@@ -10,165 +10,163 @@
 #include "../structures/other_table.h"
 #include "../code_conversion/code_conversion.h"
 #include "../first-pass/emit/modular_helpers.h"
+#include "../first-pass/data/data_directive.h"
 #include "../first-pass/data/process_data_directives.h"
 #include "../first-pass/output/output_writer.h"
 #include "../first-pass/print/memory_map_print.h"
 #include "../second-run/second-run.h"
 #include "../memory_map/memory_map.h"
 
+/* האם שורת הפקודה היא מסוג data */
 static int is_data_directive_opcode(const char *opcode) {
     return (strcmp(opcode, ".data") == 0 || strcmp(opcode, ".string") == 0 || strcmp(opcode, ".mat") == 0);
 }
 
-static int ensure_mat_adjacency(const char *originalLine,
-                                const char *fileName,
-                                int lineNumber) {
+/* בודק אם יש סמיכות בין מילת המטריצה לבין הסוגר המרובע */
+static int ensure_mat_adjacency(const char *originalLine, const char *fileName, int lineNumber) {
     if (strstr(originalLine, ".mat[") == NULL) {
         error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, fileName, lineNumber,
-                        "'.mat' must be followed immediately by '['");
+                        "'.mat' must be close to a '['");
         return 0;
     }
     return 1;
 }
 
-static void copy_inst_to_data_directive(DataDirective *dest,
-                                        const InstParts *instParts,
-                                        int lineNumber) {
+/* מעתיק את חלקי הפקודה לתוך מבנה DataParts */
+static void copy_inst_to_data_directive(DataParts *dest, const InstParts *instParts, int lineNumber) {
+    /* מאפס את המבנה */
     memset(dest, 0, sizeof(*dest));
 
+    /* מעתיק את סוג הפקודה */
     strncpy(dest->type, instParts->opcode, sizeof(dest->type) - 1);
 
+    /* מעתיק את שם התווית */
     if (instParts->label) {
         strncpy(dest->label, instParts->label, sizeof(dest->label) - 1);
     }
 
+    /* מעתיק את האופרנדים */
     if (instParts->operands) {
         strncpy(dest->operands, instParts->operands, sizeof(dest->operands) - 1);
     }
 
+    /* מעתיק את מספר השורה המקורי */
     dest->src_line = lineNumber;
 }
 
-static int grow_directives_if_needed(DataDirective ***directives,
-                                     int *directivesCapacity,
-                                     int *directivesCount) {
-    DataDirective *tmp;
-    int newCap;
-
+/* בודק אם יש צורך להגדיל את המערך הדינמי של ההנחיות Data */
+static int grow_directives_if_needed(DataParts **directives, int *directivesCapacity, int *directivesCount) {
+    /* אם יש מקום פנוי במערך הנוכחי, אין צורך להגדיל */
     if (*directivesCount < *directivesCapacity) {
         return 1;
     }
 
-    newCap = *directivesCapacity ? (*directivesCapacity * 2) : 16;
-
-    tmp = (DataDirective *)realloc(**directives, sizeof(DataDirective) * newCap);
-    if (!tmp) {
-        return 0;
-    }
-
-    **directives = tmp;
-    *directivesCapacity = newCap;
-
-    return 1;
-}
-
-#if 0 /* Unused legacy helper; keep for reference, disable to silence -Wall */
-static int ensure_code_capacity(code_conv_t ***codeBuffer,
-                                int *codeCapacity,
-                                int *errorFound) {
-    code_conv_t *tmp;
-    int newCap;
-
-    if ((**codeBuffer) && *codeCapacity > 0) {
+    /* הקצאה פשוטה: מגדילים את הקיבולת בדיוק באיבר אחד (לא היעילה ביותר, אבל פשוטה) */
+    {
+        int newCap = *directivesCount + 1; /* אם הקיבולת 0, newCap יהיה 1 */
+        /* מגדיל את המערך */
+        DataParts *tmp = (DataParts *)realloc(*directives, sizeof(DataParts) * newCap);
+        /* בודק אם ההקצאה הצליחה */
+        if (!tmp) {
+            return 0;
+        }
+        *directives = tmp;
+        *directivesCapacity = newCap;
         return 1;
     }
-
-    newCap = *codeCapacity ? (*codeCapacity * 2) : 64;
-
-    tmp = (code_conv_t *)realloc(**codeBuffer, sizeof(code_conv_t) * newCap);
-    if (!tmp) {
-        *errorFound = 1;
-        return 0;
-    }
-
-    **codeBuffer = tmp;
-    *codeCapacity = newCap;
-
-    return 1;
 }
-#endif
 
-static void count_words_for_directive(const DataDirective *directive,
-                                      int *requiredWords) {
-    if (strcmp(directive->type, ".data") == 0) {
-        const char *p = directive->operands;
-        int count = 0;
-        while (*p) {
-            char *end;
-            /* skip spaces and commas */
-            while (*p && isspace((unsigned char)*p)) p++;
-            if (*p == ',') { p++; continue; }
-            while (*p && isspace((unsigned char)*p)) p++;
-            if (!*p) break;
-            (void)strtol(p, &end, 10);
-            if (end != p) {
-                count++;
-                p = end;
-            } else {
-                break;
-            }
+/* מונה מילים עבור הנחיית .data (פשוט יותר: ספרות עם סימן אופציונלי מופרדות בפסיקים/רווחים) */
+static void count_words_for_data(const char *operands, int *requiredWords) {
+    const char *p = operands;
+    int count = 0;
+
+    while (*p) {
+        /* דלג על רווחים */
+        while (*p && isspace((unsigned char)*p)) p++;
+        /* דלג על פסיקים עודפים */
+        if (*p == ',') { p++; continue; }
+
+        /* סימן  */
+        if (*p == '+' || *p == '-') p++;
+
+        /* חייבת להיות לפחות ספרה אחת כדי להחשיב כמספר */
+        if (isdigit((unsigned char)*p)) {
+            while (isdigit((unsigned char)*p)) p++;
+            count++;
+            /* מדלגים על רווחים ופסיק בודד אחרי המספר */
             while (*p && isspace((unsigned char)*p)) p++;
             if (*p == ',') p++;
-        }
-        if (count > 0) {
-            *requiredWords += count;
-        }
-    } else if (strcmp(directive->type, ".string") == 0) {
-        const char *p = directive->operands;
-        int len = 0;
-        while (*p && *p != '"') p++;
-        if (*p == '"') {
-            p++;
-            while (*p && *p != '"') { len++; p++; }
-            /* include null terminator if closing quote exists */
-            if (*p == '"') len++;
-        }
-        if (len > 0) {
-            *requiredWords += len;
-        }
-    } else if (strcmp(directive->type, ".mat") == 0) {
-        const char *p = directive->operands;
-        int rows = 0;
-        int cols = 0;
-
-        while (*p && *p != '[') {
+        } else {
+            /* לא מספר- מדלגים עד הפסיק הבא או סוף מחרוזת כדי למנוע לולאה אין-סופית */
+        while (*p && *p != ',') {
             p++;
         }
-
-        if (*p == '[') {
-            p++;
-            rows = (int)strtol(p, (char **)&p, 10);
-
-            while (*p && *p != '[') {
+            if (*p == ',')
                 p++;
-            }
+        }
+    }
 
-            if (*p == '[') {
-                p++;
-                cols = (int)strtol(p, (char **)&p, 10);
-            }
+    if (count > 0) {
+        *requiredWords += count;
+    }
+}
+
+/* מונה מילים עבור הנחיית .string (כולל תו סיום) */
+static void count_words_for_string(const char *operands, int *requiredWords) {
+    const char *p = operands;
+    int len = 0;
+
+    /* מחפש את התו הראשון של המחרוזת */
+    while (*p && *p != '"') p++;
+    /*  ציטוט - אם מצאנו את התו הראשון, סופרים את התווים עד התו הסוגר */
+    if (*p == '"') {
+        p++;
+
+        while (*p && *p != '"') {
+            len++;
+            p++;
         }
 
-        if (rows > 0 && cols > 0) {
+        if (*p == '"')
+            len++;
+    }
+    /* כולל תו סיום אם מצאנו את התו הסוגר */
+    if (len > 0) {
+        *requiredWords += len;
+    }
+}
+
+/* מונה מילים עבור הנחיית .mat (rows*cols) */
+static void count_words_for_mat(const char *operands, int *requiredWords) {
+    const char *p = operands;
+    int rows = 0, cols = 0;
+
+    /* קפוץ לסוגר המרובע הראשון */
+    while (*p && *p != '[') p++;
+
+    if (*p == '[') {
+        /* קרא בפשטות עם sscanf: תבנית "[rows][cols]" עם רווחים אופציונליים */
+        if (sscanf(p, " [ %d ] [ %d ]", &rows, &cols) == 2 && rows > 0 && cols > 0) {
             *requiredWords += rows * cols;
         }
     }
 }
 
-static int allocate_data_image_if_needed(int requiredWords,
-                                         const char *fileName,
-                                         data_word **dataImage,
-                                         int *errorFound) {
+/* ספירת מילים להנחיה אחת לפי סוגה */
+static void count_words_for_directive(const DataParts *dataPart, int *requiredWords) {
+    if (strcmp(dataPart->type, ".data") == 0) {
+        count_words_for_data(dataPart->operands, requiredWords);
+    } else if (strcmp(dataPart->type, ".string") == 0) {
+        count_words_for_string(dataPart->operands, requiredWords);
+    } else if (strcmp(dataPart->type, ".mat") == 0) {
+        count_words_for_mat(dataPart->operands, requiredWords);
+    }
+}
+
+/* הקצאת תמונת נתונים אם יש צורך */
+static int allocate_data_image_if_needed(int requiredWords, const char *fileName,
+                                        data_word **dataImage, int *errorFound) {
     data_word *img;
     int j;
 
@@ -176,13 +174,16 @@ static int allocate_data_image_if_needed(int requiredWords,
         return 1;
     }
 
+    /* הקצאת זיכרון לתמונת הנתונים */
     img = (data_word *)malloc(sizeof(data_word) * requiredWords);
+    /* בודק אם ההקצאה הצליחה */
     if (!img) {
         error_report_ex(ERR_SEV_ERROR, ERR_OUT_OF_MEMORY, fileName, 0, "data image");
         *errorFound = 1;
         return 0;
     }
 
+    /* מאתחל את ערכי ברירת המחדל של תמונת הנתונים */
     for (j = 0; j < requiredWords; j++) {
         img[j].value = 0;
         img[j].src_line = 0;
@@ -193,197 +194,172 @@ static int allocate_data_image_if_needed(int requiredWords,
     return 1;
 }
 
-static void dispatch_instruction_or_directive(const char *originalLine,
-                                              InstParts *inst,
-                                              DataDirective **directives, int *directivesCount, int *directivesCapacity,
-                                              LabelNode **labelTable,
-                                              other_table **entryTable, int *entryCount,
-                                              other_table **externalTable, int *externalCount,
-                                              code_conv_t **codeBuffer, int *codeCount, int *codeCapacity,
-                                              const char *fileName, int lineNumber,
-                                              int *errorFound) {
+/* פועל על שורה אחת של קוד או הנחיה */
+static void dispatch_instruction_or_directive(const char *originalLine, InstParts *inst, DataParts **directives, int *directivesCount, int *directivesCapacity,
+                                              LabelNode **labelTable, other_table **entryTable, int *entryCount,
+                                              other_table **externalTable, int *externalCount, code_conv_t **codeBuffer, int *codeCount, int *codeCapacity,
+                                              const char *fileName, int lineNumber, int *errorFound) {
+    /* אם זו הנחיה */
     if (isInstr(inst->opcode)) {
-        /* Directive path */
+        /* אם ההנחיה מסוג .extern */
         if (strcmp(inst->opcode, ".extern") == 0) {
+            /* מוסיף את הסמל החיצוני לטבלה */
             add_to_other_table(externalTable, externalCount, inst->operands);
 
+            /* אם יש תו אופרטור */
             if (inst->operands && *inst->operands) {
                 int lerr = 0;
                 LabelNode *existing;
 
+                /* בודק אם התווית חוקית */
                 if (!legal_label_decl(inst->operands, &lerr)) {
                     print_external_error(lerr, fileName, lineNumber);
                     *errorFound = 1;
                 } else {
                     existing = find_label(*labelTable, inst->operands);
-
+                    /* אם התווית כבר קיימת */
                     if (existing) {
+                        /* אם התווית היא חיצונית */
                         if (!existing->is_extern) {
                             error_report_ex(ERR_SEV_ERROR, ERR_EXTERN_LOCAL_CONFLICT, fileName, lineNumber, inst->operands);
                             *errorFound = 1;
                         } else {
+                            /* אם התווית היא חיצונית, מדווח אזהרה */
                             error_report_ex(ERR_SEV_WARNING, ERR_EXTERN_DUPLICATE, fileName, lineNumber, inst->operands);
                         }
                     } else {
+                        /* אם התווית לא קיימת, מוסיף אותה לטבלה */
                         insert_label(labelTable, inst->operands, 0, 0, 0, 1);
                     }
                 }
             }
-
             return;
         }
 
+        /* אם זו הנחיה מסוג .entry */
         if (strcmp(inst->opcode, ".entry") == 0) {
+            /* מוסיף את הסמל המקומי לטבלה */
             add_to_other_table(entryTable, entryCount, inst->operands);
             return;
         }
 
+        /* אם זו הנחיה מסוג .data */
         if (is_data_directive_opcode(inst->opcode)) {
             if (strcmp(inst->opcode, ".mat") == 0) {
                 if (!ensure_mat_adjacency(originalLine, fileName, lineNumber)) {
-                    return; /* error already reported */
+                    return; 
                 }
             }
 
-            if (!grow_directives_if_needed(&directives, directivesCapacity, directivesCount)) {
-                return; /* OOM, will be reported later when trying to use */
+            /* אם זו הנחיה מסוג .data */
+            if (!grow_directives_if_needed(directives, directivesCapacity, directivesCount)) {
+                return; /* לא הצלחנו להרחיב את המערך */
             }
 
-            copy_inst_to_data_directive(&(*directives)[(*directivesCount)++], inst, lineNumber);
+            copy_inst_to_data_directive(&(*directives)[(*directivesCount)++], inst, lineNumber); /* מעתיק את ההנחיה להנחיה מסוג .data */
             return;
         }
 
-        /* Unknown directive, nothing to do here */
+        /* אם זו הנחיה לא ידועה */
         return;
     } else {
-        /* Instruction path */
         {
             int wordsEmitted;
 
-            if (*codeCount >= *codeCapacity) {
-                int newCap = *codeCapacity ? *codeCapacity * 2 : 64;
-                code_conv_t *tmp = (code_conv_t *)realloc(*codeBuffer, sizeof(code_conv_t) * newCap);
-
-                if (!tmp) {
-                    *errorFound = 1;
-                    return;
+            /* ודא שיש מספיק מקום ל-"הכי גרוע" (עד 5 מילים להוראה) כדי למנוע גלישה של הבאפר */
+            {
+                const int MAX_WORDS_PER_INSTRUCTION = 5; /* מילה ראשונה + עד 4 מילות-מידע */
+                if ((*codeCount + MAX_WORDS_PER_INSTRUCTION) > *codeCapacity) {
+                    int newCap = *codeCount + MAX_WORDS_PER_INSTRUCTION;
+                    code_conv_t *tmp = (code_conv_t *)realloc(*codeBuffer, sizeof(code_conv_t) * newCap);
+                    if (!tmp) {
+                        *errorFound = 1;
+                        return;
+                    }
+                    *codeBuffer = tmp;
+                    *codeCapacity = newCap;
                 }
-
-                *codeBuffer = tmp;
-                *codeCapacity = newCap;
             }
 
+            /* מקודדת את ההוראה לבאפר ומציבה ב‑wordsEmitted את מספר המילים שפלטה ההרכבה. */
             wordsEmitted = emit_instruction(inst, *codeBuffer, *codeCount, lineNumber, labelTable, errorFound, fileName);
 
+            /* בודקים אם ההנחיה פלטה שגיאה */
             if (wordsEmitted < 0) {
                 *errorFound = 1;
                 return;
             }
 
-            /* Cap absolute code addresses at 255: IC starts at 100 */
+            /* מגביל את כתובות הקוד האבסולוטיות ל-255: IC מתחיל ב-100 */
             if ((100 + *codeCount + wordsEmitted) > MEMORY_SIZE) {
                 error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, fileName, lineNumber, "code exceeds memory size");
                 *errorFound = 1;
-                return; /* do not increase codeCount */
+                return; /* לא מצליח להוסיף עוד קוד */
             }
 
+            /* מעדכן את מספר המילים בקוד */
             *codeCount += wordsEmitted;
         }
     }
 }
 
-/* --- Original helpers kept, reformatted and simplified where helpful --- */
-#if 0 /* Unused legacy helper; keep for reference, disable to silence -Wall */
-static int handle_directive(const char *originalLine,
-                            InstParts *instParts,
-                            DataDirective **directives, int *directivesCount, int *directivesCapacity,
-                            LabelNode **labelTable,
-                            other_table **entryTable, int *entryCount,
-                            other_table **externalTable, int *externalCount,
-                            const char *fileName, int lineNumber, int *errorFound) {
-    /* Redirect to the unified dispatcher for directives */
-    dispatch_instruction_or_directive(originalLine,
-                                      instParts,
-                                      directives, directivesCount, directivesCapacity,
-                                      labelTable,
-                                      entryTable, entryCount,
-                                      externalTable, externalCount,
-                                      NULL, NULL, NULL,
-                                      fileName, lineNumber,
-                                      errorFound);
-    return 1;
-}
-
-static void handle_instruction_line(const InstParts *instParts,
-                                    code_conv_t **codeBuffer, int *codeCount, int *codeCapacity,
-                                    LabelNode **labelTable,
-                                    int *errorFound,
-                                    const char *fileName, int lineNumber) {
-    /* Use the same dispatcher (it branches on opcode type) */
-    {
-        InstParts temp = *instParts;
-        dispatch_instruction_or_directive("",
-                                          &temp,
-                                          NULL, NULL, NULL,
-                                          labelTable,
-                                          NULL, NULL,
-                                          NULL, NULL,
-                                          codeBuffer, codeCount, codeCapacity,
-                                          fileName, lineNumber,
-                                          errorFound);
-    }
-}
-#endif
-
-static int compute_required_and_allocate(DataDirective *directives, int directivesCount,
-                                         int dataBaseAddress,
-                                         const char *fileName,
+/* מחשב את מספר המילים הנדרש ומבצע הקצאה אם צריך */
+static int compute_required_and_allocate(DataParts *directives, int directivesCount,
+                                         int dataBaseAddress, const char *fileName,
                                          data_word **dataImage, int *errorFound) {
     int requiredWords = 0;
     int i;
 
+    /* סופר את מספר המילים הנדרש לכל הנחיה */
     for (i = 0; i < directivesCount; i++) {
         count_words_for_directive(&directives[i], &requiredWords);
     }
 
-    /* Absolute address cap (MEMORY_SIZE - 1) */
+    /* מגביל את כתובת הבסיס האבסולוטית (MEMORY_SIZE - 1) */
     if (dataBaseAddress >= MEMORY_SIZE || (dataBaseAddress + requiredWords) > MEMORY_SIZE) {
         error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, fileName, 0, "program exceeds memory size");
         *errorFound = 1;
         return 0;
     }
 
+    /* בודק אם יש צורך בהקצאת תמונת נתונים */
     if (!allocate_data_image_if_needed(requiredWords, fileName, dataImage, errorFound)) {
         return 0;
     }
 
+    /* מעדכן את מספר המילים הנדרש */
     return requiredWords;
 }
 
+/* מסיים את שלב הפלט */
 static void finalize_outputs(const char *fileName,
                              code_conv_t *codeBuffer, int codeCount,
                              data_word *dataImage, int dataCount,
                              LabelNode *labelTable,
                              other_table *entryTable, int entryCount,
                              other_table *externalTable, int externalCount) {
+    /* כותב את קובץ הפלט */
     char baseName[128];
 
+    /* מקבל את שם הקובץ הבסיסי */
     get_basefile(fileName, baseName, sizeof(baseName));
 
+    /* מבצע את המעבר השני */
     exe_second_pass(codeBuffer, codeCount, labelTable, entryTable, entryCount,
                     externalTable, externalCount, baseName);
 
+    /* כותב את קובץ הפלט */
     write_code_file(baseName, codeBuffer, codeCount, dataImage, dataCount);
 
-    print_memory_map(codeCount, codeBuffer, dataCount, dataImage, labelTable);
+    /* כותב את מפת הזיכרון */
+    print_memory_map(codeCount, codeBuffer, dataCount, dataImage, labelTable); /* להסיר */
 
-    print_symbol_table(labelTable);
+    print_symbol_table(labelTable); /* להסיר */
 }
 
-static void process_single_line(const char *file_name,
-                                char *lineBuffer,
-                                int lineNumber,
-                                DataDirective **directives, int *directivesCount, int *directivesCapacity,
+/* מעבד שורה בודדת */
+static void process_single_line(const char *file_name,char *lineBuffer, int lineNumber,
+                                DataParts **directives, int *directivesCount, int *directivesCapacity,
                                 LabelNode **labelTable,
                                 other_table **entryTable, int *entryCount,
                                 other_table **externalTable, int *externalCount,
@@ -391,13 +367,16 @@ static void process_single_line(const char *file_name,
                                 int *errorFound) {
     InstParts inst;
 
+    /* מנתח את שורת הקוד */
     inst = parseInstLine(lineBuffer);
 
+    /* בודק אם יש הוראת פעולה חוקית */
     if (!inst.opcode) {
         freeInstParts(&inst);
         return;
     }
 
+    /* בודק אם יש תווית חוקית */
     if (inst.label && *inst.label) {
         int error_code = 0;
 
@@ -414,29 +393,32 @@ static void process_single_line(const char *file_name,
         }
     }
 
+    /* בודק אם יש הוראת פעולה חוקית */
     dispatch_instruction_or_directive(lineBuffer,
                                       &inst,
                                       directives, directivesCount, directivesCapacity,
-                                      labelTable,
-                                      entryTable, entryCount,
+                                      labelTable, entryTable, entryCount,
                                       externalTable, externalCount,
                                       codeBuffer, codeCount, codeCapacity,
-                                      file_name, lineNumber,
-                                      errorFound);
+                                      file_name, lineNumber,  errorFound );
 
     freeInstParts(&inst);
 }
 
+/* מסיים את שלב נתוני הקלט */
 static void finalize_data_phase(const char *file_name,
-                                int codeCount,
-                                DataDirective *directives, int directivesCount,
+                                int codeCount,DataParts *directives, int directivesCount,
                                 int *dataBaseAddress,
                                 data_word **dataImage, int *dataCount, int *dataCounter,
                                 LabelNode **labelTable,
                                 int *errorFound) {
+
+    /* בודק אם יש הוראות נתונים */
     if (directivesCount > 0) {
+        /* מחשב את כתובת הבסיס לנתונים */
         *dataBaseAddress = 100 + codeCount;
 
+        /* מקצה זיכרון לנתונים */
         (void)compute_required_and_allocate(directives,
                                             directivesCount,
                                             *dataBaseAddress,
@@ -456,10 +438,13 @@ static void finalize_data_phase(const char *file_name,
     }
 }
 
+/* מתחיל את שלב הקלט ואת המעבר הראשון*/
 int exe_first_pass(char *file_name) {
+    /* פותח את קובץ הקלט */
     FILE *inputFile;
     char lineBuffer[256];
 
+    /* משתנה לשמירת מספר השורה הנוכחית */
     int lineNumber = 0;
     int errorFound = 0;
 
@@ -480,32 +465,36 @@ int exe_first_pass(char *file_name) {
     other_table *entryTable = NULL;
     other_table *externalTable = NULL;
 
-    MemoryMap dataMemoryMap;
-
     int dataBaseAddress = 100;
 
-    DataDirective *directives = NULL;
+    DataParts *directives = NULL;
     int directivesCount = 0;
     int directivesCapacity = 0;
 
-    memory_map_init(&dataMemoryMap);
-
+    
     inputFile = fopen(file_name, "r");
     if (!inputFile) {
         error_report(ERR_IO_INPUT_OPEN_FAIL, file_name, 0, file_name);
         return 1;
     }
 
+    /* כל עוד יש שורות לקלט */
     while (fgets(lineBuffer, sizeof(lineBuffer), inputFile)) {
-        int line_len;
 
+        char *checkPtr;
         lineNumber++;
 
-        line_len = (int)strlen(lineBuffer);
-        while (line_len > 0 && (lineBuffer[line_len - 1] == '\n' || lineBuffer[line_len - 1] == '\r')) {
-            lineBuffer[--line_len] = '\0';
+        /* מסיר את סיומי השורה (\r או \n) בפשטות */
+        lineBuffer[strcspn(lineBuffer, "\r\n")] = '\0';
+
+        /* מאפשר שורות מוזחות: בודק אחרי דילוג על רווחים/טאבים ורק אז מחליט לדלג */
+        checkPtr = lineBuffer;
+        while (*checkPtr == ' ' || *checkPtr == '\t') checkPtr++;
+        if (*checkPtr == '\0' || *checkPtr == ';') {
+            continue; /* שורה ריקה או הערה */
         }
 
+        /* מעבד שורה בודדת */
         process_single_line(file_name,
                             lineBuffer,
                             lineNumber,
@@ -519,6 +508,7 @@ int exe_first_pass(char *file_name) {
 
     fclose(inputFile);
 
+    /* מסיים את שלב הנתונים */
     finalize_data_phase(file_name,
                         codeCount,
                         directives, directivesCount,
@@ -527,6 +517,7 @@ int exe_first_pass(char *file_name) {
                         &labelTable,
                         &errorFound);
 
+    /* אם לא נמצאה שגיאה, מסיים את הפלטים */
     if (!errorFound) {
         finalize_outputs(file_name,
                          codeBuffer, codeCount,
@@ -536,14 +527,14 @@ int exe_first_pass(char *file_name) {
                          externalTable, externalCount);
     }
 
+    /* משחרר זיכרון */
     free(directives);
     free(dataImage);
-    /* other_table is a dynamic array -> free directly */
     free(entryTable);
     free(externalTable);
-    /* label table is a linked list -> use provided free function */
     free_label_list(labelTable);
 
+    /* אם נמצאה שגיאה, מחזירים 1 אחרת מחזירים 0 */
     return errorFound ? 1 : 0;
 }
 

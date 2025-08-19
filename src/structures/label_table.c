@@ -4,18 +4,24 @@
 #include <stdio.h>
 #include "../error-handler/error-handler.h"
 
-
+/* מוסיף תווית לטבלת התוויות */
 int insert_label(LabelNode **head, const char *label_name, int address, int is_code, int is_data, int is_extern) {
+    
     LabelNode *new_node;
+    /* בדוק אם התווית כבר קיימת */
     if (find_label(*head, label_name) != NULL) {
+        /* אם התווית כבר קיימת, מחזיר שגיאה */
         error_report_ex(ERR_SEV_ERROR, ERR_LABEL_DUPLICATE, NULL, 0, label_name);
         return 0;
     }
+    /* מקצה זיכרון לתווית חדשה */
     new_node = (LabelNode *)malloc(sizeof(LabelNode));
     if (!new_node) {
+        /* אם לא הצליח להקצות זיכרון, מחזיר שגיאה */
         error_report_ex(ERR_SEV_ERROR, ERR_OUT_OF_MEMORY, NULL, 0, "label node");
         return 0;
     }
+    /* מעתיק את שם התווית ומגדיר את שאר השדות */
     strncpy(new_node->name, label_name, MAX_LABEL_LEN - 1);
     new_node->name[MAX_LABEL_LEN - 1] = '\0';
     new_node->address = address;
@@ -25,9 +31,11 @@ int insert_label(LabelNode **head, const char *label_name, int address, int is_c
     new_node->is_entry = 0;
     new_node->next = NULL;
     
+    /* אם הרשימה ריקה, התווית החדשה היא הראש */
     if (*head == NULL) {
         *head = new_node;
     } else {
+        /* אחרת, מוסיף את התווית החדשה בסוף הרשימה */
         LabelNode *curr = *head;
         while (curr->next) curr = curr->next;
         curr->next = new_node;
@@ -35,23 +43,16 @@ int insert_label(LabelNode **head, const char *label_name, int address, int is_c
     return 1;
 }
 
-
+/* מחפש תווית בטבלת התוויות */
 LabelNode* find_label(LabelNode *head, const char *label_name) {
+    /* עובר על כל התוויות ברשימה */
     while (head) {
+        /* אם מצא את התווית, מחזיר את הצומת */
         if (strcmp(head->name, label_name) == 0) return head;
         head = head->next;
     }
     return NULL;
 }
-
-
-void update_data_labels_address(LabelNode *head) {
-    
-    
-    
-    
-}
-
 
 int check_duplicate_labels(LabelNode *head) {
     LabelNode *curr;

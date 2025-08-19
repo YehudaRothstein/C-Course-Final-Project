@@ -7,6 +7,16 @@
 #include "../utils/base4.h"
 #include "../utils/utils.h"
 
+static void fmt_addr4(int addr, char out[5]) {
+    int d;
+    for (d = 3; d >= 0; d--) {
+        int ad = addr % 4;
+        out[d] = "abcd"[ad];
+        addr /= 4;
+    }
+    out[4] = '\0';
+}
+
 void exe_second_pass(
     code_conv_t *code, int code_count,
     LabelNode *label_table,
@@ -72,7 +82,11 @@ void exe_second_pass(
                         code[i].value &= 0x3FC;
                         code[i].are = 2; 
                         if (!extf) extf = fopen(extname, "w");
-                        if (extf) fprintf(extf, "%s %d\n", sym, 100 + i);
+                        if (extf) {
+                            char addr4[5];
+                            fmt_addr4(100 + i, addr4);
+                            fprintf(extf, "%s %s\n", sym, addr4);
+                        }
                     } else {
                         code[i].value = (unsigned short)(((unsigned short)lbl->address << 2) & 0x3FC);
                         code[i].are = 1; 
@@ -87,7 +101,9 @@ void exe_second_pass(
         for (j = 0; j < entries_count; j++) {
             LabelNode *lbl2 = find_label(label_table, entries[j].name);
             if (lbl2 && !lbl2->is_extern) {
-                fprintf(entf, "%s %d\n", lbl2->name, lbl2->address);
+                char addr4[5];
+                fmt_addr4(lbl2->address, addr4);
+                fprintf(entf, "%s %s\n", lbl2->name, addr4);
             }
         }
         fclose(entf);

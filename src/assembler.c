@@ -1,9 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include "pre-assembler/pre-assembler.h"
 #include "first-run/first-run.h"
 #include "utils/utils.h"
+
+/* Track current macro artifacts for cleanup on error/interruption */
+static char g_macro_log_path[512];
+static char g_macro_spread_file[512];
+static int g_has_macro_paths = 0;
 
 /* לקחת את שם הקובץ ללא הסיומת */
 static void basename_no_ext(const char *path, char *out, size_t outSize) {
@@ -22,6 +28,29 @@ static void basename_no_ext(const char *path, char *out, size_t outSize) {
     out[len] = '\0';
 }
 
+static void cleanup_macro_artifacts(void) {
+    if (g_has_macro_paths) {
+        (void)remove(g_macro_log_path);
+        (void)remove(g_macro_spread_file);
+        g_has_macro_paths = 0;
+    }
+}
+
+/* On normal success we keep the .am file, remove only the log */
+static void cleanup_macro_logs_only(void) {
+    if (g_has_macro_paths) {
+        (void)remove(g_macro_log_path);
+        /* keep g_macro_spread_file (.am) */
+    }
+}
+
+static void on_interrupt(int sig) {
+    (void)sig;
+    cleanup_macro_artifacts();
+    /* exit to trigger any other atexit handlers if present */
+    exit(1);
+}
+
 int main(int argc, char *argv[]) {
     int i;
     int any_fail = 0;
@@ -30,6 +59,12 @@ int main(int argc, char *argv[]) {
         printf("Usage: %s <file1> [file2 ...]\n", argv[0]);
         return 1;
     }
+
+    /* On normal exit, remove only macro logs; interrupts remove both */
+    atexit(cleanup_macro_logs_only);
+    signal(SIGINT, on_interrupt);
+    signal(SIGTERM, on_interrupt);
+    signal(SIGABRT, on_interrupt);
 
     /* עוברים על כל קובץ בנפרד */
     for (i = 1; i < argc; i++) {
@@ -42,6 +77,9 @@ int main(int argc, char *argv[]) {
         int pre_assembler_result;
         int first_pass_res;
 
+        g_has_macro_paths = 0; /* reset before each file */
+
+        /* השתמש בנתיב כפי שניתן (בלי טיפול ב-.as) */
         {
             size_t cap = sizeof(input_path);
             size_t inlen = strlen(arg);
@@ -55,7 +93,7 @@ int main(int argc, char *argv[]) {
 
         /* בונים את נתיב הפלט */
         if (!ensure_output_dir(base, out_dir, sizeof(out_dir))) {
-            printf("Failed to have output directory for %s\n", base);
+            printf("Failed to prepare output directory for %s\n", base);
             any_fail = 1;
             continue;
         }
@@ -90,24 +128,33 @@ int main(int argc, char *argv[]) {
             macro_spread_file[pos2] = '\0';
         }
 
+        /* Update globals for cleanup on interruption */
+        strncpy(g_macro_log_path, macro_log_path, sizeof(g_macro_log_path) - 1);
+        g_macro_log_path[sizeof(g_macro_log_path) - 1] = '\0';
+        strncpy(g_macro_spread_file, macro_spread_file, sizeof(g_macro_spread_file) - 1);
+        g_macro_spread_file[sizeof(g_macro_spread_file) - 1] = '\0';
+        g_has_macro_paths = 1;
+
         /* מריצים את ה-pre-assembler */
         pre_assembler_result = runPreAssembler(input_path, macro_log_path, macro_spread_file, sizeof(macro_spread_file));
-        if (pre_assembler_result != 0) {
+    if (pre_assembler_result != 0) {
             printf("no result from pre-assembler for %s.\n", input_path);
+            cleanup_macro_artifacts();
             any_fail = 1;
             continue; /* עובר לקובץ הבא */
         }
 
-        /* מריצים את ה-first pass */
+        /* macro_spread_file עכשיו מסתיים ב-.am ונמצא בתוך <base>-outputs */
         first_pass_res = exe_first_pass(macro_spread_file);
-        if (first_pass_res != 0) {
+    if (first_pass_res != 0) {
             printf("First pass failed for %s.\n", input_path);
+            cleanup_macro_artifacts();
             any_fail = 1;
             continue;
         }
 
-        /* מוחקים את קובץ הלוג של המקרו אם האסמבלר עבד */
-        (void)remove(macro_log_path);
+    /* Success path: keep .am; remove only macro logs */
+    cleanup_macro_logs_only();
     }
 
     return any_fail ? 1 : 0;

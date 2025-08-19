@@ -7,6 +7,7 @@
 #include "memory_map.h"
 #include "../../error-handler/error-handler.h"
 
+
 static int parse_dims(const char *s, int *rows, int *cols) {
     const char *p = s;
     /* find first '[' */
@@ -22,7 +23,7 @@ static int parse_dims(const char *s, int *rows, int *cols) {
 }
 
 void process_data_directives(
-    DataDirective *data_directives,
+    DataParts *data_directives,
     int data_directives_count,
     int data_base_addr,
     data_word **data_image_ptr,
@@ -36,7 +37,7 @@ void process_data_directives(
     int i;
 
     for (i = 0; i < data_directives_count; i++) {
-        DataDirective *dd = &data_directives[i];
+        DataParts *dd = &data_directives[i];
         int base_dc = DC;
 
         if (strcmp(dd->type, ".data") == 0) {
