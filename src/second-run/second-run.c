@@ -4,7 +4,6 @@
 #include "label_table.h"
 #include "other_table.h"
 #include "code_conversion.h"
-#include "../utils/base4.h"
 #include "../utils/utils.h"
 #include "../error-handler/error-handler.h"
 

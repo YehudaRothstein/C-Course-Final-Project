@@ -2,12 +2,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include "process_data_directives.h"
-#include "memory_map_data.h"
 #include "memory_map.h"
 #include "../../error-handler/error-handler.h"
 

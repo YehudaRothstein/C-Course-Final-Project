@@ -1,18 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include "pre-assembler/pre-assembler.h"
 #include "first-run/first-run.h"
 #include "utils/utils.h"
 
-/* Track current macro artifacts for cleanup on error/interruption */
+/* עוקבים אחרי נתיבי המקרו הנוכחיים לניקוי בשגיאה/הפסקה */
 static char g_macro_log_path[512];
 static char g_macro_spread_file[512];
 static int g_has_macro_paths = 0;
 
-/* שימוש מאוחד בפונקציית עזר: get_basefile(utils) */
 
+/* ניקוי שאריות מאקרו */
 static void cleanup_macro_artifacts(void) {
     if (g_has_macro_paths) {
         (void)remove(g_macro_log_path);
@@ -21,19 +20,11 @@ static void cleanup_macro_artifacts(void) {
     }
 }
 
-/* On normal success we keep the .am file, remove only the log */
+/* ניקוי לוגים של מאקרו בלבד */
 static void cleanup_macro_logs_only(void) {
     if (g_has_macro_paths) {
         (void)remove(g_macro_log_path);
-        /* keep g_macro_spread_file (.am) */
     }
-}
-
-static void on_interrupt(int sig) {
-    (void)sig;
-    cleanup_macro_artifacts();
-    /* exit to trigger any other atexit handlers if present */
-    exit(1);
 }
 
 int main(int argc, char *argv[]) {
@@ -44,12 +35,6 @@ int main(int argc, char *argv[]) {
         printf("Usage: %s <file1> [file2 ...]\n", argv[0]);
         return 1;
     }
-
-    /* On normal exit, remove only macro logs; interrupts remove both */
-    atexit(cleanup_macro_logs_only);
-    signal(SIGINT, on_interrupt);
-    signal(SIGTERM, on_interrupt);
-    signal(SIGABRT, on_interrupt);
 
     /* עוברים על כל קובץ בנפרד */
     for (i = 1; i < argc; i++) {
@@ -62,7 +47,7 @@ int main(int argc, char *argv[]) {
         int pre_assembler_result;
         int first_pass_res;
 
-        g_has_macro_paths = 0; /* reset before each file */
+        g_has_macro_paths = 0; /* מאפס לפני כל קובץ */
 
         /* השתמש בנתיב כפי שניתן (בלי טיפול ב-.as) */
         {
@@ -95,7 +80,7 @@ int main(int argc, char *argv[]) {
             strncat(macro_spread_file, ".am", cap2 - 1 - strlen(macro_spread_file));
         }
 
-        /* Update globals for cleanup on interruption */
+        /* מעדכן את הגלובליים לניקוי בהפסקה */
         strncpy(g_macro_log_path, macro_log_path, sizeof(g_macro_log_path) - 1);
         g_macro_log_path[sizeof(g_macro_log_path) - 1] = '\0';
         strncpy(g_macro_spread_file, macro_spread_file, sizeof(g_macro_spread_file) - 1);
@@ -120,7 +105,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-    /* Success path: keep .am; remove only macro logs */
+    /* ניקוי לוגים של מאקרו בלבד */
     cleanup_macro_logs_only();
     }
 
