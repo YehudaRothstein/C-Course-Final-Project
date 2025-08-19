@@ -87,13 +87,16 @@ static int handle_data_directive_data(
     int *data_word_count_ptr,
     LabelNode **label_head_ptr)
 {
+    int validation_only = (data_image_array == NULL);
     int start_index = *data_counter_ptr;
     const char *ptr;
     int write_index;
 
     /* אם יש תווית, מוסיפים אותה למפה */
     if (directive->label[0]) {
-        insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        if (!validation_only) {
+            insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        }
         start_index = *data_counter_ptr;
     }
 
@@ -132,9 +135,11 @@ static int handle_data_directive_data(
                 return 0;
             }
             /* שמירת הערך במערך */
-            data_image_array[write_index].value = (unsigned short)value;
-            /* קביעת מספר השורה של המקור */
-            data_image_array[write_index].src_line = directive->src_line;
+            if (!validation_only) {
+                data_image_array[write_index].value = (unsigned short)value;
+                /* קביעת מספר השורה של המקור */
+                data_image_array[write_index].src_line = directive->src_line;
+            }
 
             /* קידום המצביע למיקום הבא */
             write_index++;    
@@ -154,13 +159,16 @@ static int handle_data_directive_string(
     int *data_word_count_ptr,
     LabelNode **label_head_ptr)
 {
+    int validation_only = (data_image_array == NULL);
     int start_index = *data_counter_ptr;
     const char *p;
     int write_index;
 
     /* אם יש תווית, מוסיפים אותה למפה */
     if (directive->label[0]) {
-        insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        if (!validation_only) {
+            insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        }
         start_index = *data_counter_ptr;
     }
 
@@ -184,8 +192,10 @@ static int handle_data_directive_string(
             return 0;
         }
         /* שמירת הערך במערך */
-        data_image_array[write_index].value = (unsigned short)ch;
-        data_image_array[write_index].src_line = directive->src_line;
+        if (!validation_only) {
+            data_image_array[write_index].value = (unsigned short)ch;
+            data_image_array[write_index].src_line = directive->src_line;
+        }
 
         /* קידום המצביע למיקום הבא */
         write_index++;
@@ -199,8 +209,10 @@ static int handle_data_directive_string(
         error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
         return 0;
     }
-    data_image_array[write_index].value = 0;
-    data_image_array[write_index].src_line = directive->src_line;
+    if (!validation_only) {
+        data_image_array[write_index].value = 0;
+        data_image_array[write_index].src_line = directive->src_line;
+    }
     write_index++;
     (*data_counter_ptr)++;
     (*data_word_count_ptr)++;
@@ -216,6 +228,7 @@ static int handle_data_directive_mat(
     int *data_word_count_ptr,
     LabelNode **label_head_ptr)
 {
+    int validation_only = (data_image_array == NULL);
     int start_index = *data_counter_ptr;
     int rows = 0, cols = 0, total = 0;
     const char *ptr;
@@ -223,7 +236,9 @@ static int handle_data_directive_mat(
 
     /* אם יש תווית */
     if (directive->label[0]) {
-        insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        if (!validation_only) {
+            insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        }
         start_index = *data_counter_ptr;
     }
 
@@ -273,8 +288,10 @@ static int handle_data_directive_mat(
             }
 
             /* כתיבת הערך */
-            data_image_array[start_index + filled].value = (unsigned short)num;
-            data_image_array[start_index + filled].src_line = directive->src_line;
+            if (!validation_only) {
+                data_image_array[start_index + filled].value = (unsigned short)num;
+                data_image_array[start_index + filled].src_line = directive->src_line;
+            }
             filled++;
             (*data_counter_ptr)++;
             (*data_word_count_ptr)++;
@@ -290,8 +307,10 @@ static int handle_data_directive_mat(
                 error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
                 return 0;
             }
-            data_image_array[start_index + filled].value = 0;
-            data_image_array[start_index + filled].src_line = directive->src_line;
+            if (!validation_only) {
+                data_image_array[start_index + filled].value = 0;
+                data_image_array[start_index + filled].src_line = directive->src_line;
+            }
             filled++;
             (*data_counter_ptr)++;
             (*data_word_count_ptr)++;
@@ -337,17 +356,20 @@ void process_data_directives(
         if (strcmp(directive->type, ".data") == 0) {
             if (!handle_data_directive_data(directive, data_base_addr, data_image_array,
                                            &data_counter, &data_word_count, &label_head)) {
-                break; 
+                /* דווח שגיאה והמשך לדירקטיבה הבאה */
+                continue; 
             }
         } else if (strcmp(directive->type, ".string") == 0) {
             if (!handle_data_directive_string(directive, data_base_addr, data_image_array,
                                              &data_counter, &data_word_count, &label_head)) {
-                break;
+                /* דווח שגיאה והמשך לדירקטיבה הבאה */
+                continue;
             }
         } else if (strcmp(directive->type, ".mat") == 0) {
             if (!handle_data_directive_mat(directive, data_base_addr, data_image_array,
                                           &data_counter, &data_word_count, &label_head)) {
-                break;
+                /* דווח שגיאה והמשך לדירקטיבה הבאה */
+                continue;
             }
         }
     }

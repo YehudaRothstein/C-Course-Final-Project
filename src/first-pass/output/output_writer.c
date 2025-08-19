@@ -16,6 +16,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
         return;
     }
 
+    /* קביעת שם קובץ הפלט .ob */
     get_basefile(out_filename, base_name, sizeof(base_name));
     {
         size_t cap = sizeof(ob_filename);
@@ -30,17 +31,22 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             error_report_ex(ERR_SEV_ERROR, ERR_OUTPUT_OB_WRITE_FAIL, ob_filename, 0, NULL);
             return;
         }
-        /* Header: lengths (code_count, data_count) in special base-4 (trim leading 'a') */
+        /* שני הכתובות של הנתונים וההנחיות */
         {
             char code_count_base4[6], data_count_base4[6];
+            unsigned int cc, dc;
+            /* המרה של code_count לבסיס 4 באמצעות חלוקה/מודולו */
+            cc = (unsigned int)code_count;
             for (d = 4; d >= 0; d--) {
-                int digit = ((unsigned int)code_count >> (d * 2)) & 0x3;
-                code_count_base4[4 - d] = "abcd"[digit];
+                code_count_base4[d] = "abcd"[cc % 4];
+                cc /= 4;
             }
             code_count_base4[5] = '\0';
+            /* המרה של data_count לבסיס 4 באמצעות חלוקה/מודולו */
+            dc = (unsigned int)data_count;
             for (d = 4; d >= 0; d--) {
-                int digit2 = ((unsigned int)data_count >> (d * 2)) & 0x3;
-                data_count_base4[4 - d] = "abcd"[digit2];
+                data_count_base4[d] = "abcd"[dc % 4];
+                dc /= 4;
             }
             data_count_base4[5] = '\0';
             {
@@ -57,7 +63,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             unsigned short code_val = (code[i].value & 0x3FC) | are_bits;
             char code_base4[6];
             char addr_base4[5];
-            /* address in base-4 (4 digits) */
+            /* כתובת בבסיס 4 (4 ספרות) */
             {
                 int n = addr;
                 for (d = 3; d >= 0; d--) {
@@ -67,9 +73,12 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
                 }
                 addr_base4[4] = '\0';
             }
-            for (d = 4; d >= 0; d--) {
-                int digit = (code_val >> (d * 2)) & 0x3;
-                code_base4[4 - d] = "abcd"[digit];
+            {
+                unsigned int cv = (unsigned int)code_val;
+                for (d = 4; d >= 0; d--) {
+                    code_base4[d] = "abcd"[cv % 4];
+                    cv /= 4;
+                }
             }
             code_base4[5] = '\0';
             fprintf(fp, "%s %s\n", addr_base4, code_base4);
@@ -79,7 +88,7 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
             unsigned short data_val = data_image[i].value & 0x3FF;
             char data_base4[6];
             char addr_base4[5];
-            /* address in base-4 (4 digits) */
+            /* כתובת בבסיס 4 (4 ספרות) */
             {
                 int n2 = addr;
                 for (d = 3; d >= 0; d--) {
@@ -89,9 +98,12 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
                 }
                 addr_base4[4] = '\0';
             }
-            for (d = 4; d >= 0; d--) {
-                int digit = (data_val >> (d * 2)) & 0x3;
-                data_base4[4 - d] = "abcd"[digit];
+            {
+                unsigned int dv = (unsigned int)data_val;
+                for (d = 4; d >= 0; d--) {
+                    data_base4[d] = "abcd"[dv % 4];
+                    dv /= 4;
+                }
             }
             data_base4[5] = '\0';
             fprintf(fp, "%s %s\n", addr_base4, data_base4);

@@ -78,9 +78,3 @@ void free_label_list(LabelNode *head) {
         curr = next;
     }
 }
-
-/* מדפיס את טבלת הסמלים */
-void print_symbol_table(LabelNode *head) {
-    /* Intentionally no output to keep console identical */
-    (void)head;
-}

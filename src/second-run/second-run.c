@@ -60,6 +60,7 @@ void exe_second_pass(
     char base_only[256];
     int has_entry_symbols = 0;
     int word_index;
+    int errs_at_start = error_get_error_count();
 
     /* בונה שמות קבצי פלט בצורה פשוטה: <base>.ext / <base>.ent בתיקייה הנוכחית */
     get_basefile(base_filename, base_only, sizeof(base_only));
@@ -84,8 +85,8 @@ void exe_second_pass(
         LabelNode *label = find_label(label_table, entries[word_index].name);
         if (label && !label->is_extern) has_entry_symbols = 1;
     }
-    /* אם יש צורך בקובץ .ent, פותחים אותו לכתיבה */
-    if (has_entry_symbols) ent_file = fopen(ent_path, "w");
+    /* אם יש צורך בקובץ .ent ואין שגיאות קודמות – פותחים אותו לכתיבה */
+    if (has_entry_symbols && errs_at_start == 0) ent_file = fopen(ent_path, "w");
 
     /* כותב את הקוד המתקדם לקובץ הפלט */
     for (word_index = 0; word_index < code_count; word_index++) {
@@ -107,7 +108,10 @@ void exe_second_pass(
 
         /* טיפול בהפניות חיצוניות ופנימיות */
         if (label->is_extern) {
-            handle_extern_reference(&code[word_index], symbol_name, &ext_file, ext_path, 100 + word_index);
+            /* כתיבה ל-.ext רק אם לא היו שגיאות בתחילת המעבר */
+            if (errs_at_start == 0) {
+                handle_extern_reference(&code[word_index], symbol_name, &ext_file, ext_path, 100 + word_index);
+            }
         } else {
             handle_internal_reference(&code[word_index], (unsigned short)label->address);
         }
@@ -134,9 +138,12 @@ void exe_second_pass(
         fclose(ent_file);
     }
     /* סוגר את קובץ ה-.ext */
-    if (ext_file)
+    if (ext_file) {
         fclose(ext_file);
+    }
 
-    /* הודעת הצלחה  עבור המעבר השני */
+    /*
+     * הדפסה אינפורמטיבית על סיום המעבר השני. אין בה כדי להצביע על יצירת קבצים.
+     */
     printf("Second pass completed for %s\n", base_filename);
 }

@@ -404,6 +404,14 @@ int assembleInstruction(InstParts *inst, code_conv_t *code, int codeCount, int l
     } else if (op->operand_count == 1) { /* כתיבת מילה אחת */
         written += writeDestinationWords(code, codeCount + written, destination, destinationMode);
     }
+
+    /* קבע את מספר שורת המקור לכל המילים שנכתבו עבור ההוראה הזו (כולל מילי-אופרנד) */
+    {
+        int i;
+        for (i = 0; i < written; i++) {
+            code[codeCount + i].source_line_num = lineNumber;
+        }
+    }
     return written;
 }
 

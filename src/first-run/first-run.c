@@ -437,22 +437,38 @@ static void finalize_data_phase(const char *file_name,
         /* מחשב את כתובת הבסיס לנתונים */
         *dataBaseAddress = 100 + codeCount;
 
-        /* מקצה זיכרון לנתונים */
-        (void)compute_required_and_allocate(directives,
-                                            directivesCount,
-                                            *dataBaseAddress,
-                                            file_name,
-                                            dataImage,
-                                            errorFound);
+        /* אם כבר קיימות שגיאות, נריץ מעבר אימות בלבד כדי לאסוף שגיאות נוספות בהנחיות נתונים */
+        if (*errorFound) {
+            data_word *null_image = NULL; /* מצב אימות: אין כתיבה בפועל */
+            int tmpDataCount = *dataCount;
+            int tmpDC = *dataCounter;
+            LabelNode *tmpLabels = *labelTable; /* לא יתווספו תוויות ב-validation_only */
 
-        if (!*errorFound) {
             process_data_directives(directives,
                                     directivesCount,
                                     *dataBaseAddress,
-                                    dataImage,
-                                    dataCount,
-                                    dataCounter,
-                                    labelTable);
+                                    &null_image,
+                                    &tmpDataCount,
+                                    &tmpDC,
+                                    &tmpLabels);
+        } else {
+            /* מקצה זיכרון לנתונים ומבצע כתיבה מלאה */
+            (void)compute_required_and_allocate(directives,
+                                                directivesCount,
+                                                *dataBaseAddress,
+                                                file_name,
+                                                dataImage,
+                                                errorFound);
+
+            if (!*errorFound) {
+                process_data_directives(directives,
+                                        directivesCount,
+                                        *dataBaseAddress,
+                                        dataImage,
+                                        dataCount,
+                                        dataCounter,
+                                        labelTable);
+            }
         }
     }
 }
@@ -536,8 +552,19 @@ int exe_first_pass(char *file_name) {
                         &labelTable,
                         &errorFound);
 
-    /* אם לא נמצאה שגיאה, מדפיס הצלחה למעבר ראשון ומסיים את הפלטים */
-    if (!errorFound && error_get_error_count() == 0) {
+    /*
+     * אם התגלו שגיאות במעבר הראשון, עדיין נריץ מעבר שני לצורך דיאגנוסטיקה
+     * (כדי לגלות תוויות לא מוגדרות וכד'), אך לא נייצר אף קובץ פלט.
+     * אם אין שגיאות – נריץ את finalize_outputs שמבצע מעבר שני מלא וכתיבת פלטים.
+     */
+    if (error_get_error_count() > 0) {
+        char baseNameDiag[128];
+        get_basefile(file_name, baseNameDiag, sizeof(baseNameDiag));
+        /* מעבר שני דיאגנוסטי – second-pass עצמו ימנע כתיבת ent/ext כאשר יש שגיאות קיימות */
+        exe_second_pass(codeBuffer, codeCount, labelTable, entryTable, entryCount,
+                        externalTable, externalCount, baseNameDiag);
+    } else {
+        /* לא נמצאו שגיאות עד כה – המשך רגיל: מעבר שני מלא וכתיבת פלטים */
         printf("First pass successful for %s\n", file_name);
         finalize_outputs(file_name,
                          codeBuffer, codeCount,
