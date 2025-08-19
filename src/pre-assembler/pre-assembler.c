@@ -65,7 +65,7 @@ int runPreAssembler(const char *inputPath, const char *outputPath, char *macroOu
     fclose(outputFile);
 
     if (macroOutPathOut && macroOutPathOutSize > 0) {
-        spreadMacros(normalized, macroOutPathOut);
+        expand_macros_file(normalized, macroOutPathOut);
     }
 
     return result;

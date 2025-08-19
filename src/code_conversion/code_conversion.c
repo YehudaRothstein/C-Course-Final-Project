@@ -44,10 +44,11 @@ const OpCodeData* findOpcodeByName(const char *name) {
 void valToBinStr(unsigned short value, char *out, int bits) {
     /* ממיר את הערך למחרוזת בינארית באורך bits */
     int i;
-    for (i = bits-1; i >= 0; i--) {
-        /* ממיר את הערך לביט בינארי ומכניס אותו למחרוזת */
-        /* דוגמה: אם value = 5 (בבינארי 0101) אז המחרוזת תהיה "0101" */
-        out[bits-1-i] = ((value >> i) & 1) ? '1' : '0';
+    for (i = 0; i < bits; i++) {
+        /* חישוב האינדקס של הביט מהכי משמעותי אל הפחות משמעותי */
+        int bitIndex = bits - 1 - i;
+        /* קביעה של התו המתאים לפי ערך הביט */
+        out[i] = ((value >> bitIndex) & 1) ? '1' : '0';
     }
     /* מסיים את המחרוזת עם תו סיום */
     out[bits] = '\0';
@@ -58,6 +59,6 @@ char getAREchar(int are) {
         case 0: return 'A';
         case 1: return 'R';
         case 2: return 'E';
-        default: return '?';
+        default: return '\0';
     }
 }

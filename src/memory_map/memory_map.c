@@ -20,6 +20,7 @@ void memory_map_set(MemoryMap *map, size_t address, word_t value) {
     }
 }
 
+/* קבלת ערך מכתובת במפה */
 word_t memory_map_get(const MemoryMap *map, size_t address) {
     if (address < MEMORY_SIZE && map->cells[address].used) {
         return map->cells[address].value;
@@ -27,6 +28,7 @@ word_t memory_map_get(const MemoryMap *map, size_t address) {
     return 0;
 }
 
+/* סימון כתובת בשימוש */
 void memory_map_mark_used(MemoryMap *map, size_t address) {
     if (address < MEMORY_SIZE) {
         map->cells[address].used = 1;
@@ -36,6 +38,7 @@ void memory_map_mark_used(MemoryMap *map, size_t address) {
     }
 }
 
+/* בדיקת אם כתובת בשימוש */
 int memory_map_is_used(const MemoryMap *map, size_t address) {
     if (address < MEMORY_SIZE) {
         return map->cells[address].used;
@@ -43,6 +46,7 @@ int memory_map_is_used(const MemoryMap *map, size_t address) {
     return 0;
 }
 
+/* הדפסת מפה */
 void memory_map_print(const MemoryMap *map) {
     size_t i;
     printf("Memory Map (used cells):\n");

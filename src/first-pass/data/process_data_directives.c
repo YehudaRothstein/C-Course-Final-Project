@@ -7,18 +7,33 @@
 #include "memory_map.h"
 #include "../../error-handler/error-handler.h"
 
+/* מציאת מידות מטריצה מהטקסט */
+static int parse_matrix_dimensions(const char *text, int *rows, int *cols) {
+    const char *cursor = text;
 
-static int parse_dims(const char *s, int *rows, int *cols) {
-    const char *p = s;
-    /* find first '[' */
-    while (*p && *p != '[') p++;
-    if (*p != '[') return 0;
-    p++;
-    *rows = (int)strtol(p, (char**)&p, 10);
-    while (*p && *p != '[') p++;
-    if (*p != '[') return 0;
-    p++;
-    *cols = (int)strtol(p, (char**)&p, 10);
+    /* מוצא את ה '[' הראשון */
+    while (*cursor && *cursor != '[') {
+        cursor++;
+    }
+    /* אם לא נמצא '[', מחזירים 0 */
+    if (*cursor != '[') {
+        return 0;
+    }
+    cursor++;
+
+    *rows = (int)strtol(cursor, (char**)&cursor, 10);
+
+    /* locate second '[' */
+    while (*cursor && *cursor != '[') {
+        cursor++;
+    }
+    if (*cursor != '[') {
+        return 0;
+    }
+    cursor++;
+
+    *cols = (int)strtol(cursor, (char**)&cursor, 10);
+
     return (*rows > 0 && *cols > 0);
 }
 
@@ -30,164 +45,178 @@ void process_data_directives(
     int *data_count_ptr,
     int *DC_ptr,
     LabelNode **label_table_head_ptr) {
-    int DC = *DC_ptr;
-    int data_count = *data_count_ptr;
-    data_word *data_image = *data_image_ptr;
-    LabelNode *label_table_head = *label_table_head_ptr;
-    int i;
+    int data_counter = *DC_ptr;                 /* DC – מונה נתונים */
+    int data_word_count = *data_count_ptr;      /* מספר המילים שהוקצו לנתונים */
+    data_word *data_image_array = *data_image_ptr; /* מערך תמונת הנתונים */
+    LabelNode *label_head = *label_table_head_ptr;  /* טבלת תוויות */
+    int directive_index;
 
-    for (i = 0; i < data_directives_count; i++) {
-        DataParts *dd = &data_directives[i];
-        int base_dc = DC;
+    for (directive_index = 0; directive_index < data_directives_count; directive_index++) {
+        DataParts *directive = &data_directives[directive_index];
+        int start_index = data_counter; /* תחילת הכתיבה של ההנחיה הנוכחית */
 
-        if (strcmp(dd->type, ".data") == 0) {
-            if (dd->label[0]) {
-                insert_label(&label_table_head, dd->label, data_base_addr + DC, 0, 1, 0);
-                base_dc = DC;
+        if (strcmp(directive->type, ".data") == 0) {
+            if (directive->label[0]) {
+                insert_label(&label_head, directive->label, data_base_addr + data_counter, 0, 1, 0);
+                start_index = data_counter;
             }
             {
-                const char *p = dd->operands;
-                int data_idx = base_dc;
-                while (*p) {
-                    while (*p && isspace((unsigned char)*p)) p++;
-                    if (*p) {
-                        char *end;
-                        long val;
-                        if (*p == ',') p++;
-                        while (*p && isspace((unsigned char)*p)) p++;
-                        val = strtol(p, &end, 10);
-                        if (p != end) {
+                const char *ptr = directive->operands;
+                int write_index = start_index;
+
+                while (*ptr) {
+                    while (*ptr && isspace((unsigned char)*ptr)) {
+                        ptr++;
+                    }
+                    if (*ptr) {
+                        char *endptr;
+                        long value;
+
+                        if (*ptr == ',') {
+                            ptr++;
+                        }
+                        while (*ptr && isspace((unsigned char)*ptr)) {
+                            ptr++;
+                        }
+
+                        value = strtol(ptr, &endptr, 10);
+                        if (ptr != endptr) {
                             /* Address-based cap: last valid address is 255 (MEMORY_SIZE-1) */
-                            if ((data_base_addr + DC) >= MEMORY_SIZE) {
-                                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".data exceeds memory size");
+                            if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
+                                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".data exceeds memory size");
                                 return; /* stop further corruption */
                             }
-                            data_image[data_idx].value = (unsigned short)val;
-                            data_image[data_idx].src_line = dd->src_line;
-                            data_idx++;
-                            DC++;
-                            data_count++;
+                            data_image_array[write_index].value = (unsigned short)value;
+                            data_image_array[write_index].src_line = directive->src_line;
+                            write_index++;
+                            data_counter++;
+                            data_word_count++;
                         }
-                        p = end;
+                        ptr = endptr;
                     }
                 }
             }
-        } else if (strcmp(dd->type, ".string") == 0) {
-            if (dd->label[0]) {
-                insert_label(&label_table_head, dd->label, data_base_addr + DC, 0, 1, 0);
-                base_dc = DC;
+        } else if (strcmp(directive->type, ".string") == 0) {
+            if (directive->label[0]) {
+                insert_label(&label_head, directive->label, data_base_addr + data_counter, 0, 1, 0);
+                start_index = data_counter;
             }
             {
-                const char *p = dd->operands;
-                while (*p && *p != '"') p++;
-                if (*p == '"') {
-                    p++;
-                    while (*p && *p != '"') {
-                        unsigned char ch = (unsigned char)*p; /* C89: declare at block start */
+                const char *ptr2 = directive->operands;
+                int write_index2 = start_index;
+
+                while (*ptr2 && *ptr2 != '"') {
+                    ptr2++;
+                }
+                if (*ptr2 == '"') {
+                    ptr2++;
+                    while (*ptr2 && *ptr2 != '"') {
+                        unsigned char ch = (unsigned char)*ptr2; /* C89: declare at block start */
                         /* Enforce printable ASCII range 32..126 inclusive */
                         if (ch < 32 || ch > 126) {
-                            error_report_ex(ERR_SEV_ERROR, ERR_STRING_BAD_CHAR, NULL, dd->src_line, NULL);
+                            error_report_ex(ERR_SEV_ERROR, ERR_STRING_BAD_CHAR, NULL, directive->src_line, NULL);
                             return;
                         }
-                        if ((data_base_addr + DC) >= MEMORY_SIZE) {
-                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".string exceeds memory size");
+                        if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
+                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
                             return;
                         }
-                        data_image[base_dc].value = (unsigned short)ch;
-                        data_image[base_dc].src_line = dd->src_line;
-                        base_dc++;
-                        DC++;
-                        data_count++;
-                        p++;
+                        data_image_array[write_index2].value = (unsigned short)ch;
+                        data_image_array[write_index2].src_line = directive->src_line;
+                        write_index2++;
+                        data_counter++;
+                        data_word_count++;
+                        ptr2++;
                     }
                     /* null terminator */
-                    if ((data_base_addr + DC) >= MEMORY_SIZE) {
-                        error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".string exceeds memory size");
+                    if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
+                        error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
                         return;
                     }
-                    data_image[base_dc].value = 0;
-                    data_image[base_dc].src_line = dd->src_line;
-                    base_dc++;
-                    DC++;
-                    data_count++;
+                    data_image_array[write_index2].value = 0;
+                    data_image_array[write_index2].src_line = directive->src_line;
+                    write_index2++;
+                    data_counter++;
+                    data_word_count++;
                 } else {
-                    error_report_ex(ERR_SEV_ERROR, ERR_STRING_NOT_QUOTED, NULL, dd->src_line, NULL);
+                    error_report_ex(ERR_SEV_ERROR, ERR_STRING_NOT_QUOTED, NULL, directive->src_line, NULL);
                     return;
                 }
             }
-        } else if (strcmp(dd->type, ".mat") == 0) {
+        } else if (strcmp(directive->type, ".mat") == 0) {
             int rows = 0, cols = 0, total = 0;
-            if (dd->label[0]) {
+            if (directive->label[0]) {
                 /* mark as data, not extern */
-                insert_label(&label_table_head, dd->label, data_base_addr + DC, 0, 1, 0);
-                base_dc = DC;
+                insert_label(&label_head, directive->label, data_base_addr + data_counter, 0, 1, 0);
+                start_index = data_counter;
             }
-            if (!parse_dims(dd->operands, &rows, &cols)) {
-                error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, NULL, dd->src_line, NULL);
+            if (!parse_matrix_dimensions(directive->operands, &rows, &cols)) {
+                error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, NULL, directive->src_line, NULL);
                 return;
             }
             total = rows * cols;
             {
                 /* Move p to just after the SECOND closing ']' */
-                const char *p = dd->operands;
-                int closes = 0;
-                while (*p) {
-                    if (*p == ']') {
-                        closes++;
-                        if (closes == 2) { p++; break; }
+                const char *ptr3 = directive->operands;
+                int close_brackets_seen = 0;
+                while (*ptr3) {
+                    if (*ptr3 == ']') {
+                        close_brackets_seen++;
+                        if (close_brackets_seen == 2) { ptr3++; break; }
                     }
-                    p++;
+                    ptr3++;
                 }
                 /* Skip whitespace and an optional comma */
-                while (*p && isspace((unsigned char)*p)) p++;
-                if (*p == ',') { p++; }
-                while (*p && isspace((unsigned char)*p)) p++;
+                while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
+                if (*ptr3 == ',') { ptr3++; }
+                while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
 
                 /* Parse up to total initializers; fill remaining with 0 */
                 {
                     int filled = 0;
-                    while (*p && filled < total) {
-                        while (*p && isspace((unsigned char)*p)) p++;
-                        if (!*p) break;
-                        if (*p == ',') { p++; continue; }
+                    while (*ptr3 && filled < total) {
+                        while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
+                        if (!*ptr3) break;
+                        if (*ptr3 == ',') { ptr3++; continue; }
                         {
-                            char *end;
-                            long val = strtol(p, &end, 10);
-                            if (p == end) break; /* no more numbers */
-                            if ((data_base_addr + DC) >= MEMORY_SIZE) {
-                                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".mat exceeds memory size");
+                            char *endptr3;
+                            long value3 = strtol(ptr3, &endptr3, 10);
+                            if (ptr3 == endptr3) break; /* no more numbers */
+                            if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
+                                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
                                 return;
                             }
-                            data_image[base_dc + filled].value = (unsigned short)val;
-                            data_image[base_dc + filled].src_line = dd->src_line;
+                            data_image_array[start_index + filled].value = (unsigned short)value3;
+                            data_image_array[start_index + filled].src_line = directive->src_line;
                             filled++;
-                            DC++;
-                            data_count++;
-                            p = end;
-                            while (*p && isspace((unsigned char)*p)) p++;
-                            if (*p == ',') p++;
+                            data_counter++;
+                            data_word_count++;
+                            ptr3 = endptr3;
+                            while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
+                            if (*ptr3 == ',') ptr3++;
                         }
                     }
                     while (filled < total) {
-                        if ((data_base_addr + DC) >= MEMORY_SIZE) {
-                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, dd->src_line, ".mat exceeds memory size");
+                        if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
+                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
                             return;
                         }
-                        data_image[base_dc + filled].value = 0;
-                        data_image[base_dc + filled].src_line = dd->src_line;
+                        data_image_array[start_index + filled].value = 0;
+                        data_image_array[start_index + filled].src_line = directive->src_line;
                         filled++;
-                        DC++;
-                        data_count++;
+                        data_counter++;
+                        data_word_count++;
                     }
                     /* Warn on extra values */
-                    while (*p) {
-                        while (*p && isspace((unsigned char)*p)) p++;
-                        if (*p == ',') { p++; continue; }
-                        if (!*p) break;
+                    while (*ptr3) {
+                        while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
+                        if (*ptr3 == ',') { ptr3++; continue; }
+                        if (!*ptr3) break;
                         {
-                            char *end2; (void)strtol(p, &end2, 10);
-                            if (p != end2) {
-                                error_report_ex(ERR_SEV_WARNING, ERR_MAT_INIT_COUNT_MISMATCH, NULL, dd->src_line, "extra initializers ignored");
+                            char *end2;
+                            (void)strtol(ptr3, &end2, 10);
+                            if (ptr3 != end2) {
+                                error_report_ex(ERR_SEV_WARNING, ERR_MAT_INIT_COUNT_MISMATCH, NULL, directive->src_line, "extra initializers ignored");
                                 break;
                             }
                             break;
@@ -197,8 +226,8 @@ void process_data_directives(
             }
         }
     }
-    *data_image_ptr = data_image;
-    *data_count_ptr = data_count;
-    *DC_ptr = DC;
-    *label_table_head_ptr = label_table_head;
+    *data_image_ptr = data_image_array;
+    *data_count_ptr = data_word_count;
+    *DC_ptr = data_counter;
+    *label_table_head_ptr = label_head;
 }

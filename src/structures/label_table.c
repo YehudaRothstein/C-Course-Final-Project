@@ -54,6 +54,7 @@ LabelNode* find_label(LabelNode *head, const char *label_name) {
     return NULL;
 }
 
+/* בודק אם יש תוויות כפולות בטבלת התוויות */
 int check_duplicate_labels(LabelNode *head) {
     LabelNode *curr;
     for (curr = head; curr; curr = curr->next) {
@@ -68,7 +69,7 @@ int check_duplicate_labels(LabelNode *head) {
     return 1;
 }
 
-
+/* משחרר את רשימת התוויות */
 void free_label_list(LabelNode *head) {
     LabelNode *curr = head;
     while (curr) {
@@ -78,6 +79,7 @@ void free_label_list(LabelNode *head) {
     }
 }
 
+/* מדפיס את טבלת הסמלים */
 void print_symbol_table(LabelNode *head) {
     /* Intentionally no output to keep console identical */
     (void)head;
