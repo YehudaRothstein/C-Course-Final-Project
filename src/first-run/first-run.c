@@ -13,7 +13,6 @@
 #include "../first-pass/data/data_directive.h"
 #include "../first-pass/data/process_data_directives.h"
 #include "../first-pass/output/output_writer.h"
-#include "../first-pass/print/memory_map_print.h"
 #include "../second-run/second-run.h"
 #include "../memory_map/memory_map.h"
 
@@ -352,9 +351,6 @@ static void finalize_outputs(const char *fileName,
     write_code_file(baseName, codeBuffer, codeCount, dataImage, dataCount);
 
     /* כותב את מפת הזיכרון */
-    print_memory_map(codeCount, codeBuffer, dataCount, dataImage, labelTable); /* להסיר */
-
-    print_symbol_table(labelTable); /* להסיר */
 }
 
 /* מעבד שורה בודדת */
@@ -517,8 +513,9 @@ int exe_first_pass(char *file_name) {
                         &labelTable,
                         &errorFound);
 
-    /* אם לא נמצאה שגיאה, מסיים את הפלטים */
+    /* אם לא נמצאה שגיאה, מדפיס הצלחה למעבר ראשון ומסיים את הפלטים */
     if (!errorFound) {
+        printf("First pass successful for %s\n", file_name);
         finalize_outputs(file_name,
                          codeBuffer, codeCount,
                          dataImage, dataCount,

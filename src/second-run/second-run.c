@@ -7,9 +7,6 @@
 #include "../utils/base4.h"
 #include "../utils/utils.h"
 
-/* Mask for the 10-bit word payload with A/R/E (low 2 bits) cleared */
-#define PAYLOAD_MASK_10B 0x3FCu
-
 /* עוזר לעצב כתובת מיוחדת בבסיס 4 באורך 4 תווים */
 static void fmt_addr4(int addr, char out[5]) {
     int d;
@@ -21,55 +18,7 @@ static void fmt_addr4(int addr, char out[5]) {
     out[4] = '\0';
 }
 
-/* Build path into dst safely (C90): dst gets dir + optional '/' + base + suffix, truncated if needed */
-static void build_path_safe(char *dst, size_t dst_sz, const char *dir, const char *base, const char *suffix) {
-    size_t len_dir = strlen(dir);
-    int need_sep = (len_dir > 0 && dir[len_dir - 1] != '/') ? 1 : 0;
-    size_t len_sep = need_sep ? 1u : 0u;
-    size_t len_base = strlen(base);
-    size_t len_suf = strlen(suffix);
-    size_t pos = 0;
-
-    if (dst_sz == 0) return;
-
-    /* Calculate max base part to fit into dst */
-    if (len_dir + len_sep + len_base + len_suf >= dst_sz) {
-        size_t max_base;
-        if (dst_sz <= 1) {
-            dst[0] = '\0';
-            return;
-        }
-        if (len_dir >= dst_sz - 1) {
-            len_dir = dst_sz - 1; /* we'll truncate dir too */
-            len_sep = 0;
-            len_base = 0;
-            len_suf = 0;
-        } else {
-            max_base = (dst_sz - 1) - len_dir - len_sep - len_suf;
-            if (len_base > max_base) len_base = max_base;
-        }
-    }
-
-    /* Copy dir */
-    if (len_dir > 0) { memcpy(dst + pos, dir, len_dir); pos += len_dir; }
-    if (need_sep && pos < dst_sz - 1) { dst[pos++] = '/'; }
-    /* Copy base */
-    if (len_base > 0 && pos < dst_sz - 1) {
-        size_t can_copy = dst_sz - 1 - pos;
-        if (len_base > can_copy) len_base = can_copy;
-        memcpy(dst + pos, base, len_base); pos += len_base;
-    }
-    /* Copy suffix */
-    if (len_suf > 0 && pos < dst_sz - 1) {
-        size_t can_copy_s = dst_sz - 1 - pos;
-        if (len_suf > can_copy_s) len_suf = can_copy_s;
-        memcpy(dst + pos, suffix, len_suf); pos += len_suf;
-    }
-
-    dst[pos] = '\0';
-}
-
-/* Handle an external reference: clear A/R/E payload, set ARE=2, and write to .ext */
+/* טיפול בהפניה חיצונית */
 static void handle_extern_reference(
     code_conv_t *code_word,
     const char *symbol,
@@ -77,12 +26,13 @@ static void handle_extern_reference(
     const char *ext_path,
     int word_abs_addr
 ) {
-    /* keep payload, clear low two bits */
-    code_word->value &= PAYLOAD_MASK_10B;
+
+    code_word->value = (unsigned short)((code_word->value / 4) * 4); /* שמירה על התוכן, ניקוי שני הביטים הנמוכים */
     code_word->are = 2; /* E */
     if (!*ext_file) {
         *ext_file = fopen(ext_path, "w");
     }
+    /* כתיבה לקובץ החיצוני */
     if (*ext_file) {
         char addr4[5];
         fmt_addr4(word_abs_addr, addr4);
@@ -92,8 +42,9 @@ static void handle_extern_reference(
 
 /* מעבד הפניות פנימיות מקודד את הכתובת ומגדיר את ARE=1 */
 static void handle_internal_reference(code_conv_t *code_word, unsigned short label_addr) {
-    code_word->value = (unsigned short)(((unsigned short)label_addr << 2) & PAYLOAD_MASK_10B);
-    code_word->are = 1; /* R */
+    /* שמים את הכתובת בביטים 2..9; השיפט מבטיח ששני הביטים הנמוכים הם 0 */
+    code_word->value = (unsigned short)(((unsigned short)label_addr) << 2);
+    code_word->are = 1; /* Relocatalbe */
 }
 
 /* הפעלת המעבר השני */
@@ -105,18 +56,26 @@ void exe_second_pass(
     char ext_path[512];
     FILE *ent_file = NULL;
     char ent_path[512];
-    char output_dir[512];
+    char base_only[256];
     int has_entry_symbols = 0;
     int word_index;
 
-    /* מבטיח שהתקייה לבניית  הקבצים קיימת */
-    ensure_output_dir(base_filename, output_dir, sizeof(output_dir));
-
-    /* בונה שמות קבצי פלט */
+    /* בונה שמות קבצי פלט בצורה פשוטה: <base>.ext / <base>.ent בתיקייה הנוכחית */
+    get_basefile(base_filename, base_only, sizeof(base_only));
     {
-        const char *dir_path = (output_dir[0] != '\0') ? output_dir : ".";
-        build_path_safe(ext_path, sizeof(ext_path), dir_path, base_filename, ".ext");
-        build_path_safe(ent_path, sizeof(ent_path), dir_path, base_filename, ".ent");
+        size_t blen = strlen(base_only);
+        size_t i;
+        /* ext path */
+        if (blen > sizeof(ext_path) - 5) blen = sizeof(ext_path) - 5; /* מקום עבור .ext + NUL */
+        for (i = 0; i < blen; i++) ext_path[i] = base_only[i];
+        ext_path[blen] = '\0';
+        strcat(ext_path, ".ext");
+        /* ent path */
+        blen = strlen(base_only);
+        if (blen > sizeof(ent_path) - 5) blen = sizeof(ent_path) - 5; /* מקום עבור .ent + NUL */
+        for (i = 0; i < blen; i++) ent_path[i] = base_only[i];
+        ent_path[blen] = '\0';
+        strcat(ent_path, ".ent");
     }
 
     /* בודק אם יש צורך בקובץ .ent */
@@ -170,4 +129,7 @@ void exe_second_pass(
     /* סוגר את קובץ ה-.ext */
     if (ext_file)
         fclose(ext_file);
+
+    /* הודעת הצלחה  עבור המעבר השני */
+    printf("Second pass successful for %s\n", base_filename);
 }

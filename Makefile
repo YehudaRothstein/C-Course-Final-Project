@@ -12,7 +12,6 @@ SRCS = \
  src/first-pass/data/process_data_directives.c \
  src/second-run/second-run.c \
  src/first-pass/emit/modular_helpers.c \
- src/first-pass/print/memory_map_print.c \
  src/first-pass/output/output_writer.c \
  src/structures/label_table.c \
  src/structures/opcode.c \
