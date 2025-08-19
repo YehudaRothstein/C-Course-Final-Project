@@ -6,16 +6,15 @@
 #include "label_table.h"
 
 /*
- * Processes deferred data directives (.data, .string, .mat) collected during the first pass.
- * Builds the data image, updates DC and inserts data labels into the label table.
+ * פונקציה לעיבוד פקודות נתונים
  */
 void process_data_directives(
-    DataParts *data_directives,    /* Array of data directives collected during the first pass */
-    int data_directives_count,        /* Number of data directives in the array */
-    int data_base_addr,              /* Base address for the data image */
-    data_word **data_image_ptr,      /* Pointer to the data image */
-    int *data_count_ptr,             /* Pointer to the data count */
-    int *DC_ptr,                     /* Pointer to the current value of DC (data counter) */
-    LabelNode **label_table_head_ptr); /* Pointer to the head of the label table */
+    DataParts *data_directives,    /* מערך של פקודות נתונים שנאספו במהלך המעבר הראשון */
+    int data_directives_count,        /* מספר פקודות הנתונים במערך */
+    int data_base_addr,              /* כתובת הבסיס עבור תמונת הנתונים */
+    data_word **data_image_ptr,      /* מצביע לתמונת הנתונים */
+    int *data_count_ptr,             /* מצביע למספר הנתונים */
+    int *DC_ptr,                     /* מצביע לערך הנוכחי של DC (סופר הנתונים) */
+    LabelNode **label_table_head_ptr); /* מצביע לראש טבלת התוויות */
 
-#endif /* PROCESS_DATA_DIRECTIVES_H */
+#endif 

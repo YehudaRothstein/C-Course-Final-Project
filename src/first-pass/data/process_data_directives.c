@@ -2,10 +2,46 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "process_data_directives.h"
 #include "memory_map_data.h"
 #include "memory_map.h"
 #include "../../error-handler/error-handler.h"
+
+/* פונקציה לעיבוד מספרים שלמים מתוך מחרוזת */
+static int parse_int_and_advance(const char **pcursor, int *out_value) {
+    const char *p;
+    int sign;
+    long acc;
+
+    if (!pcursor || !*pcursor || !out_value) return 0;
+    p = *pcursor;
+
+    /* דילוג על רווחים */
+    while (*p && isspace((unsigned char)*p)) p++;
+
+    /* סימן אופציונלי */
+    sign = 1;
+    if (*p == '+') { p++; }
+    else if (*p == '-') { sign = -1; p++; }
+
+    /* חייב להיות לפחות ספרה אחת */
+    if (!isdigit((unsigned char)*p)) return 0;
+
+    acc = 0;
+    while (isdigit((unsigned char)*p)) {
+        acc = acc * 10 + (*p - '0');
+        p++;
+    }
+
+    acc *= sign;
+    *out_value = (int)acc; /* עבור קלטי המטלה זה מספיק */
+    *pcursor = p;          /* קידום המצביע למיקום הבא */
+    return 1;
+}
 
 /* מציאת מידות מטריצה מהטקסט */
 static int parse_matrix_dimensions(const char *text, int *rows, int *cols) {
@@ -21,9 +57,11 @@ static int parse_matrix_dimensions(const char *text, int *rows, int *cols) {
     }
     cursor++;
 
-    *rows = (int)strtol(cursor, (char**)&cursor, 10);
+    if (!parse_int_and_advance(&cursor, rows)) {
+        return 0;
+    }
 
-    /* locate second '[' */
+    /* מוצא את ה '[' השני */
     while (*cursor && *cursor != '[') {
         cursor++;
     }
@@ -32,11 +70,243 @@ static int parse_matrix_dimensions(const char *text, int *rows, int *cols) {
     }
     cursor++;
 
-    *cols = (int)strtol(cursor, (char**)&cursor, 10);
+    if (!parse_int_and_advance(&cursor, cols)) {
+        return 0;
+    }
 
+    /* רק אם המידות חיוביות */
     return (*rows > 0 && *cols > 0);
 }
 
+/* עיבוד ערכים מספריים */
+static int handle_data_directive_data(
+    DataParts *directive,
+    int data_base_addr,
+    data_word *data_image_array,
+    int *data_counter_ptr,
+    int *data_word_count_ptr,
+    LabelNode **label_head_ptr)
+{
+    int start_index = *data_counter_ptr;
+    const char *ptr;
+    int write_index;
+
+    /* אם יש תווית, מוסיפים אותה למפה */
+    if (directive->label[0]) {
+        insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        start_index = *data_counter_ptr;
+    }
+
+    ptr = directive->operands;
+    write_index = start_index;
+
+    /* עיבוד ערכים מספריים */
+    while (*ptr) {
+        /* דילוג על רווחים */
+        while (*ptr && isspace((unsigned char)*ptr)) ptr++;
+        if (!*ptr) break;
+
+        /* אם יש פסיק, מדלגים עליו */
+        if (*ptr == ',') { ptr++; continue; }
+        {
+            int value;
+            if (!parse_int_and_advance(&ptr, &value)) {
+                break; /* אין מספר חוקי – יוצאים מהלולאה */
+            }
+            if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
+                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".data exceedes memory size");
+                return 0;
+            }
+            /* שמירת הערך במערך */
+            data_image_array[write_index].value = (unsigned short)value;
+            /* קביעת מספר השורה של המקור */
+            data_image_array[write_index].src_line = directive->src_line;
+
+            /* קידום המצביע למיקום הבא */
+            write_index++;    
+            (*data_counter_ptr)++;
+            (*data_word_count_ptr)++;
+        }
+    }
+    return 1;
+}
+
+/* עיבוד מחרוזות */
+static int handle_data_directive_string(
+    DataParts *directive,
+    int data_base_addr,
+    data_word *data_image_array,
+    int *data_counter_ptr,
+    int *data_word_count_ptr,
+    LabelNode **label_head_ptr)
+{
+    int start_index = *data_counter_ptr;
+    const char *p;
+    int write_index;
+
+    /* אם יש תווית, מוסיפים אותה למפה */
+    if (directive->label[0]) {
+        insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        start_index = *data_counter_ptr;
+    }
+
+    p = directive->operands;
+    write_index = start_index;
+
+    /* חיפוש לציטוט הראשון */
+    while (*p && *p != '"') p++;
+    if (*p != '"') {
+        error_report_ex(ERR_SEV_ERROR, ERR_STRING_NOT_QUOTED, NULL, directive->src_line, NULL);
+        return 0;
+    }
+    p++;
+
+    /* חיפוש אחר הציטוט השני */
+    while (*p && *p != '"') {
+        /* בדיקת תו חוקי */
+        unsigned char ch = (unsigned char)*p;
+        if (ch < 32 || ch > 126) {
+            error_report_ex(ERR_SEV_ERROR, ERR_STRING_BAD_CHAR, NULL, directive->src_line, NULL);
+            return 0;
+        }
+        /* בדיקת גודל מפת הנתונים */
+        if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
+            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
+            return 0;
+        }
+        /* שמירת הערך במערך */
+        data_image_array[write_index].value = (unsigned short)ch;
+        data_image_array[write_index].src_line = directive->src_line;
+
+        /* קידום המצביע למיקום הבא */
+        write_index++;
+        (*data_counter_ptr)++;
+        (*data_word_count_ptr)++;
+        p++;
+    }
+
+    /* קביעת סוף המחרוזת */
+    if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
+        error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
+        return 0;
+    }
+    data_image_array[write_index].value = 0;
+    data_image_array[write_index].src_line = directive->src_line;
+    write_index++;
+    (*data_counter_ptr)++;
+    (*data_word_count_ptr)++;
+    return 1;
+}
+
+/* עיבוד מטריצות (גרסה פשוטה) */
+static int handle_data_directive_mat(
+    DataParts *directive,
+    int data_base_addr,
+    data_word *data_image_array,
+    int *data_counter_ptr,
+    int *data_word_count_ptr,
+    LabelNode **label_head_ptr)
+{
+    int start_index = *data_counter_ptr;
+    int rows = 0, cols = 0, total = 0;
+    const char *ptr;
+    int close_brackets_seen;
+
+    /* אם יש תווית */
+    if (directive->label[0]) {
+        insert_label(label_head_ptr, directive->label, data_base_addr + *data_counter_ptr, 0, 1, 0);
+        start_index = *data_counter_ptr;
+    }
+
+    /* בדיקת ממדים */
+    if (!parse_matrix_dimensions(directive->operands, &rows, &cols)) {
+        error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, NULL, directive->src_line, NULL);
+        return 0;
+    }
+    total = rows * cols;
+
+    /* מעבר אחרי שני הסוגריים ] ] */
+    ptr = directive->operands;
+    close_brackets_seen = 0;
+    while (*ptr) {
+        if (*ptr == ']') {
+            close_brackets_seen++;
+            if (close_brackets_seen == 2) { ptr++; break; }
+        }
+        ptr++;
+    }
+
+    /* דילוג על רווחים ופסיק */
+    while (*ptr && isspace((unsigned char)*ptr)) ptr++;
+    if (*ptr == ',') { ptr++; }
+    while (*ptr && isspace((unsigned char)*ptr)) ptr++;
+
+    /* קריאת ערכים עד שמילאנו הכול */
+    {
+        int filled = 0;
+        while (*ptr && filled < total) {
+            int num;
+
+            /* דילוג על רווחים ופסיקים */
+            while (*ptr && isspace((unsigned char)*ptr)) ptr++;
+            if (!*ptr) break;
+            if (*ptr == ',') { ptr++; continue; }
+
+            /* קריאת מספר פשוטה */
+            if (!parse_int_and_advance(&ptr, &num)) {
+                break; /* אין יותר מספרים */
+            }
+
+            /* בדיקת זיכרון */
+            if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
+                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
+                return 0;
+            }
+
+            /* כתיבת הערך */
+            data_image_array[start_index + filled].value = (unsigned short)num;
+            data_image_array[start_index + filled].src_line = directive->src_line;
+            filled++;
+            (*data_counter_ptr)++;
+            (*data_word_count_ptr)++;
+
+            /* דילוג נוסף על רווחים/פסיק */
+            while (*ptr && isspace((unsigned char)*ptr)) ptr++;
+            if (*ptr == ',') ptr++;
+        }
+
+        /* מילוי יתרת התאים באפס */
+        while (filled < total) {
+            if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
+                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
+                return 0;
+            }
+            data_image_array[start_index + filled].value = 0;
+            data_image_array[start_index + filled].src_line = directive->src_line;
+            filled++;
+            (*data_counter_ptr)++;
+            (*data_word_count_ptr)++;
+        }
+
+        /* אזהרה על עודפים: אם נשאר עוד מספר אחרי שמילאנו הכול */
+        {
+            const char *check = ptr;
+            while (*check && isspace((unsigned char)*check)) check++;
+            if (*check == ',') { check++; while (*check && isspace((unsigned char)*check)) check++; }
+            {
+                int extra;
+                const char *tmp = check;
+                if (parse_int_and_advance(&tmp, &extra)) {
+                    error_report_ex(ERR_SEV_WARNING, ERR_MAT_INIT_COUNT_MISMATCH, NULL, directive->src_line, "extra initializers ignored");
+                }
+            }
+        }
+    }
+
+    return 1;
+}
+
+/* פונקציה לעיבוד הנחיות נתונים */
 void process_data_directives(
     DataParts *data_directives,
     int data_directives_count,
@@ -44,7 +314,8 @@ void process_data_directives(
     data_word **data_image_ptr,
     int *data_count_ptr,
     int *DC_ptr,
-    LabelNode **label_table_head_ptr) {
+    LabelNode **label_table_head_ptr)
+{
     int data_counter = *DC_ptr;                 /* DC – מונה נתונים */
     int data_word_count = *data_count_ptr;      /* מספר המילים שהוקצו לנתונים */
     data_word *data_image_array = *data_image_ptr; /* מערך תמונת הנתונים */
@@ -53,179 +324,25 @@ void process_data_directives(
 
     for (directive_index = 0; directive_index < data_directives_count; directive_index++) {
         DataParts *directive = &data_directives[directive_index];
-        int start_index = data_counter; /* תחילת הכתיבה של ההנחיה הנוכחית */
 
         if (strcmp(directive->type, ".data") == 0) {
-            if (directive->label[0]) {
-                insert_label(&label_head, directive->label, data_base_addr + data_counter, 0, 1, 0);
-                start_index = data_counter;
-            }
-            {
-                const char *ptr = directive->operands;
-                int write_index = start_index;
-
-                while (*ptr) {
-                    while (*ptr && isspace((unsigned char)*ptr)) {
-                        ptr++;
-                    }
-                    if (*ptr) {
-                        char *endptr;
-                        long value;
-
-                        if (*ptr == ',') {
-                            ptr++;
-                        }
-                        while (*ptr && isspace((unsigned char)*ptr)) {
-                            ptr++;
-                        }
-
-                        value = strtol(ptr, &endptr, 10);
-                        if (ptr != endptr) {
-                            /* Address-based cap: last valid address is 255 (MEMORY_SIZE-1) */
-                            if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
-                                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".data exceeds memory size");
-                                return; /* stop further corruption */
-                            }
-                            data_image_array[write_index].value = (unsigned short)value;
-                            data_image_array[write_index].src_line = directive->src_line;
-                            write_index++;
-                            data_counter++;
-                            data_word_count++;
-                        }
-                        ptr = endptr;
-                    }
-                }
+            if (!handle_data_directive_data(directive, data_base_addr, data_image_array,
+                                           &data_counter, &data_word_count, &label_head)) {
+                break; 
             }
         } else if (strcmp(directive->type, ".string") == 0) {
-            if (directive->label[0]) {
-                insert_label(&label_head, directive->label, data_base_addr + data_counter, 0, 1, 0);
-                start_index = data_counter;
-            }
-            {
-                const char *ptr2 = directive->operands;
-                int write_index2 = start_index;
-
-                while (*ptr2 && *ptr2 != '"') {
-                    ptr2++;
-                }
-                if (*ptr2 == '"') {
-                    ptr2++;
-                    while (*ptr2 && *ptr2 != '"') {
-                        unsigned char ch = (unsigned char)*ptr2; /* C89: declare at block start */
-                        /* Enforce printable ASCII range 32..126 inclusive */
-                        if (ch < 32 || ch > 126) {
-                            error_report_ex(ERR_SEV_ERROR, ERR_STRING_BAD_CHAR, NULL, directive->src_line, NULL);
-                            return;
-                        }
-                        if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
-                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
-                            return;
-                        }
-                        data_image_array[write_index2].value = (unsigned short)ch;
-                        data_image_array[write_index2].src_line = directive->src_line;
-                        write_index2++;
-                        data_counter++;
-                        data_word_count++;
-                        ptr2++;
-                    }
-                    /* null terminator */
-                    if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
-                        error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
-                        return;
-                    }
-                    data_image_array[write_index2].value = 0;
-                    data_image_array[write_index2].src_line = directive->src_line;
-                    write_index2++;
-                    data_counter++;
-                    data_word_count++;
-                } else {
-                    error_report_ex(ERR_SEV_ERROR, ERR_STRING_NOT_QUOTED, NULL, directive->src_line, NULL);
-                    return;
-                }
+            if (!handle_data_directive_string(directive, data_base_addr, data_image_array,
+                                             &data_counter, &data_word_count, &label_head)) {
+                break;
             }
         } else if (strcmp(directive->type, ".mat") == 0) {
-            int rows = 0, cols = 0, total = 0;
-            if (directive->label[0]) {
-                /* mark as data, not extern */
-                insert_label(&label_head, directive->label, data_base_addr + data_counter, 0, 1, 0);
-                start_index = data_counter;
-            }
-            if (!parse_matrix_dimensions(directive->operands, &rows, &cols)) {
-                error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, NULL, directive->src_line, NULL);
-                return;
-            }
-            total = rows * cols;
-            {
-                /* Move p to just after the SECOND closing ']' */
-                const char *ptr3 = directive->operands;
-                int close_brackets_seen = 0;
-                while (*ptr3) {
-                    if (*ptr3 == ']') {
-                        close_brackets_seen++;
-                        if (close_brackets_seen == 2) { ptr3++; break; }
-                    }
-                    ptr3++;
-                }
-                /* Skip whitespace and an optional comma */
-                while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
-                if (*ptr3 == ',') { ptr3++; }
-                while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
-
-                /* Parse up to total initializers; fill remaining with 0 */
-                {
-                    int filled = 0;
-                    while (*ptr3 && filled < total) {
-                        while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
-                        if (!*ptr3) break;
-                        if (*ptr3 == ',') { ptr3++; continue; }
-                        {
-                            char *endptr3;
-                            long value3 = strtol(ptr3, &endptr3, 10);
-                            if (ptr3 == endptr3) break; /* no more numbers */
-                            if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
-                                error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
-                                return;
-                            }
-                            data_image_array[start_index + filled].value = (unsigned short)value3;
-                            data_image_array[start_index + filled].src_line = directive->src_line;
-                            filled++;
-                            data_counter++;
-                            data_word_count++;
-                            ptr3 = endptr3;
-                            while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
-                            if (*ptr3 == ',') ptr3++;
-                        }
-                    }
-                    while (filled < total) {
-                        if ((data_base_addr + data_counter) >= MEMORY_SIZE) {
-                            error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".mat exceeds memory size");
-                            return;
-                        }
-                        data_image_array[start_index + filled].value = 0;
-                        data_image_array[start_index + filled].src_line = directive->src_line;
-                        filled++;
-                        data_counter++;
-                        data_word_count++;
-                    }
-                    /* Warn on extra values */
-                    while (*ptr3) {
-                        while (*ptr3 && isspace((unsigned char)*ptr3)) ptr3++;
-                        if (*ptr3 == ',') { ptr3++; continue; }
-                        if (!*ptr3) break;
-                        {
-                            char *end2;
-                            (void)strtol(ptr3, &end2, 10);
-                            if (ptr3 != end2) {
-                                error_report_ex(ERR_SEV_WARNING, ERR_MAT_INIT_COUNT_MISMATCH, NULL, directive->src_line, "extra initializers ignored");
-                                break;
-                            }
-                            break;
-                        }
-                    }
-                }
+            if (!handle_data_directive_mat(directive, data_base_addr, data_image_array,
+                                          &data_counter, &data_word_count, &label_head)) {
+                break;
             }
         }
     }
+
     *data_image_ptr = data_image_array;
     *data_count_ptr = data_word_count;
     *DC_ptr = data_counter;

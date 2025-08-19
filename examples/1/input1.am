@@ -1,0 +1,14 @@
+; file input1.as
+
+.extern Skibidi
+
+STR: .string "lol"
+LIST: .data 6,7
+S1: inc Skibidi
+
+mov r3, LIST
+add r2, r3
+mov r3, LIST
+add r2, r3
+
+stop
