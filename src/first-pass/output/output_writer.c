@@ -7,31 +7,16 @@
 
 void write_code_file(const char *out_filename, code_conv_t *code, int code_count, data_word *data_image, int data_count) {
     char ob_filename[300];
-    const char *slash = strrchr(out_filename, '/');
-    const char *base = slash ? slash + 1 : out_filename;
-    const char *dot = strrchr(base, '.');
-    size_t len = dot ? (size_t)(dot - base) : strlen(base);
     char base_name[256];
-    char out_dir[512];
     int i;
     int d;
 
-    strncpy(base_name, base, len);
-    base_name[len] = '\0';
-
-    /* Ensure per-file directory exists and build <dir>/<base>.ob */
-    ensure_output_dir(base_name, out_dir, sizeof(out_dir));
+    get_basefile(out_filename, base_name, sizeof(base_name));
     {
-        size_t pos = 0, j;
         size_t cap = sizeof(ob_filename);
-        for (j = 0; out_dir[j] && pos + 1 < cap; j++) ob_filename[pos++] = out_dir[j];
-        if (pos + 1 < cap) ob_filename[pos++] = '/';
-        for (j = 0; base_name[j] && pos + 1 < cap; j++) ob_filename[pos++] = base_name[j];
-        {
-            const char *suf = ".ob";
-            for (j = 0; suf[j] && pos + 1 < cap; j++) ob_filename[pos++] = suf[j];
-        }
-        ob_filename[pos] = '\0';
+        ob_filename[0] = '\0';
+        strncat(ob_filename, base_name, cap - 1);
+        strncat(ob_filename, ".ob", cap - 1 - strlen(ob_filename));
     }
 
     {
