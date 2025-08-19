@@ -21,16 +21,6 @@ static int is_data_directive_opcode(const char *opcode) {
     return (strcmp(opcode, ".data") == 0 || strcmp(opcode, ".string") == 0 || strcmp(opcode, ".mat") == 0);
 }
 
-/* בודק אם יש סמיכות בין מילת המטריצה לבין הסוגר המרובע */
-static int ensure_mat_adjacency(const char *originalLine, const char *fileName, int lineNumber) {
-    if (strstr(originalLine, ".mat[") == NULL) {
-        error_report_ex(ERR_SEV_ERROR, ERR_MAT_SIZE_INVALID, fileName, lineNumber,
-                        "'.mat' must be close to a '['");
-        return 0;
-    }
-    return 1;
-}
-
 /* מעתיק את חלקי הפקודה לתוך מבנה DataParts */
 static void copy_inst_to_data_directive(DataParts *dest, const InstParts *instParts, int lineNumber) {
     /* מאפס את המבנה */
@@ -118,7 +108,7 @@ static void count_words_for_string(const char *operands, int *requiredWords) {
 
     /* מחפש את התו הראשון של המחרוזת */
     while (*p && *p != '"') p++;
-    /*  ציטוט - אם מצאנו את התו הראשון, סופרים את התווים עד התו הסוגר */
+    /* אם מצאנו ציטוט פותח, סופרים עד ציטוט סוגר או סוף שורה; מוסיפים תמיד תו סיום NUL */
     if (*p == '"') {
         p++;
 
@@ -127,12 +117,8 @@ static void count_words_for_string(const char *operands, int *requiredWords) {
             p++;
         }
 
-        if (*p == '"')
-            len++;
-    }
-    /* כולל תו סיום אם מצאנו את התו הסוגר */
-    if (len > 0) {
-        *requiredWords += len;
+        /* מוסיפים תו סיום תמיד (גם אם אין ציטוט סוגר) */
+        *requiredWords += (len + 1);
     }
 }
 
@@ -237,19 +223,27 @@ static void dispatch_instruction_or_directive(const char *originalLine, InstPart
 
         /* אם זו הנחיה מסוג .entry */
         if (strcmp(inst->opcode, ".entry") == 0) {
-            /* מוסיף את הסמל המקומי לטבלה */
+            /* אימות שם תווית */
+            if (!inst->operands || !*inst->operands) {
+                error_report_ex(ERR_SEV_ERROR, ERR_LABEL_EMPTY, fileName, lineNumber, ".entry requires a label");
+                *errorFound = 1;
+                return;
+            }
+            {
+                int lerr2 = 0;
+                if (!legal_label_decl(inst->operands, &lerr2)) {
+                    print_external_error(lerr2, fileName, lineNumber);
+                    *errorFound = 1;
+                    return;
+                }
+            }
+            /* מוסיף את הסמל לרשימת entries */
             add_to_other_table(entryTable, entryCount, inst->operands);
             return;
         }
 
         /* אם זו הנחיה מסוג .data */
         if (is_data_directive_opcode(inst->opcode)) {
-            if (strcmp(inst->opcode, ".mat") == 0) {
-                if (!ensure_mat_adjacency(originalLine, fileName, lineNumber)) {
-                    return; 
-                }
-            }
-
             /* אם זו הנחיה מסוג .data */
             if (!grow_directives_if_needed(directives, directivesCapacity, directivesCount)) {
                 return; /* לא הצלחנו להרחיב את המערך */
@@ -281,7 +275,7 @@ static void dispatch_instruction_or_directive(const char *originalLine, InstPart
             }
 
             /* מקודדת את ההוראה לבאפר ומציבה ב‑wordsEmitted את מספר המילים שפלטה ההרכבה. */
-            wordsEmitted = emit_instruction(inst, *codeBuffer, *codeCount, lineNumber, labelTable, errorFound, fileName);
+            wordsEmitted = encode_instruction(inst, *codeBuffer, *codeCount, lineNumber, labelTable, errorFound, fileName);
 
             /* בודקים אם ההנחיה פלטה שגיאה */
             if (wordsEmitted < 0) {
@@ -339,13 +333,37 @@ static void finalize_outputs(const char *fileName,
                              other_table *externalTable, int externalCount) {
     /* כותב את קובץ הפלט */
     char baseName[128];
+    int errs_before;
 
     /* מקבל את שם הקובץ הבסיסי */
     get_basefile(fileName, baseName, sizeof(baseName));
-
+    errs_before = error_get_error_count();
     /* מבצע את המעבר השני */
     exe_second_pass(codeBuffer, codeCount, labelTable, entryTable, entryCount,
                     externalTable, externalCount, baseName);
+    /* אם נוספו שגיאות במעבר השני – אל תכתוב פלט */
+    if (error_get_error_count() > errs_before) {
+        /* נסה למחוק קבצי ent/ext שנוצרו חלקית */
+        char tmp[300];
+        get_basefile(baseName, tmp, sizeof(tmp));
+        {
+            char path[320];
+            size_t cap = sizeof(path);
+            path[0] = '\0';
+            strncat(path, tmp, cap - 1);
+            strncat(path, ".ent", cap - 1 - strlen(path));
+            remove(path);
+        }
+        {
+            char path[320];
+            size_t cap = sizeof(path);
+            path[0] = '\0';
+            strncat(path, tmp, cap - 1);
+            strncat(path, ".ext", cap - 1 - strlen(path));
+            remove(path);
+        }
+        return;
+    }
 
     /* כותב את קובץ הפלט */
     write_code_file(baseName, codeBuffer, codeCount, dataImage, dataCount);
@@ -378,8 +396,13 @@ static void process_single_line(const char *file_name,char *lineBuffer, int line
 
         if (!legal_label_decl(inst.label, &error_code)) {
             char details[100];
-
-            sprintf(details, "Illegal label '%s'", inst.label);
+            {
+                char *p = details; const char *h1 = "Illegal label '"; const char *s = inst.label ? inst.label : ""; const char *h2 = "'";
+                while (*h1) { *p++ = *h1++; }
+                while (*s && (p - details) < (int)sizeof(details) - 2) { *p++ = *s++; }
+                while (*h2) { *p++ = *h2++; }
+                *p = '\0';
+            }
 
             error_report_ex(ERR_SEV_ERROR, ERR_LABEL_REDEFINED, file_name, lineNumber, details);
             print_external_error(error_code, file_name, lineNumber);
@@ -514,7 +537,7 @@ int exe_first_pass(char *file_name) {
                         &errorFound);
 
     /* אם לא נמצאה שגיאה, מדפיס הצלחה למעבר ראשון ומסיים את הפלטים */
-    if (!errorFound) {
+    if (!errorFound && error_get_error_count() == 0) {
         printf("First pass successful for %s\n", file_name);
         finalize_outputs(file_name,
                          codeBuffer, codeCount,
@@ -527,6 +550,7 @@ int exe_first_pass(char *file_name) {
     /* משחרר זיכרון */
     free(directives);
     free(dataImage);
+    free(codeBuffer);
     free(entryTable);
     free(externalTable);
     free_label_list(labelTable);

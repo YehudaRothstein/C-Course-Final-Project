@@ -1,20 +1,22 @@
-; file ps.as
 .entry LOOP
 .entry LENGTH
 .extern L3
 .extern W
 
+mcro test
+ sub r1, r4
+ inc K
+ mcroend
 
 MAIN: mov M1[r2][r7],W
  add r2,STR
-LOOP: jmp W
+LOOP: jmp H
     prn #-5
- sub r1, r4
- inc K
+    test
  mov M1[r3][r3],r3
  bne L3
 END: stop
-STR: .string "abcdef"
-LENGTH: .data 6,-9,15
+STR: .string "abcdefdadaia"
+LENGTH: .data 6,-9,15,e
 K: .data 22
-M1: .mat[2][2] 0,1,2,3 
+M1: .mat[2][2] 1,2,3,4

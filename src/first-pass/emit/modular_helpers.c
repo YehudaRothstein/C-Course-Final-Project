@@ -3,10 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include "utils.h"
-#include "code_conversion.h"
-#include "label_table.h"
-#include "emit/modular_helpers.h"
+#include "../../utils/utils.h"
+#include "../../code_conversion/code_conversion.h"
+#include "../../structures/label_table.h"
+#include "modular_helpers.h"
 #include "../../error-handler/error-handler.h"
 
 #ifndef IC_INIT_VALUE
@@ -296,7 +296,17 @@ static int prepareOperands(const OpCodeData *op, const char *operands, char *sou
     found = parseOperandsToBuffers(operands, source, sourceSize, destination, destinationSize);
     /* בדיקת מספר האופרנדים */
     if (found != op->operand_count) {
-        sprintf(buf, "expected %d got %d", op->operand_count, found); /* chatgpt עזר לי למצו את הפונקציה הזאת*/
+        /* Build message without sprintf: "expected <d> got <d>"; counts are small (0..2) */
+        {
+            char *p = buf;
+            const char *h1 = "expected ";
+            const char *h2 = " got ";
+            while (*h1) { *p++ = *h1++; }
+            *p++ = (char)('0' + (op->operand_count % 10));
+            while (*h2) { *p++ = *h2++; }
+            *p++ = (char)('0' + (found % 10));
+            *p = '\0';
+        }
         error_report_ex(ERR_SEV_ERROR, ERR_OPERAND_COUNT_MISMATCH, fileName, lineNumber, buf);
         *errorFound = 1;
         return 0;
@@ -358,7 +368,16 @@ int assembleInstruction(InstParts *inst, code_conv_t *code, int codeCount, int l
     /* בדיקת תקינות האופקוד */
     if (!op) {
         *errorFound = 1;
-        sprintf(buf, "opcode '%s'", inst->opcode);
+        {
+            char *p = buf;
+            const char *h1 = "opcode '";
+            const char *s = inst->opcode ? inst->opcode : "";
+            const char *h2 = "'";
+            while (*h1) { *p++ = *h1++; }
+            while (*s && (p - buf) < (int)sizeof(buf) - 2) { *p++ = *s++; }
+            while (*h2) { *p++ = *h2++; }
+            *p = '\0';
+        }
         error_report_ex(ERR_SEV_ERROR, ERR_OPCODE_UNKNOWN, fileName, lineNumber, buf);
         return 0;
     }
@@ -388,7 +407,12 @@ int assembleInstruction(InstParts *inst, code_conv_t *code, int codeCount, int l
     return written;
 }
 
-/* פלט ההוראה */
-int emit_instruction(InstParts *inst, code_conv_t *code, int code_count, int line_num, LabelNode **label_table_head, int *error_found, const char *file_name) {
+/* קידוד ההוראה) */
+int encode_instruction(InstParts *inst, code_conv_t *code, int code_count, int line_num, LabelNode **label_table_head, int *error_found, const char *file_name) {
     return assembleInstruction(inst, code, code_count, line_num, label_table_head, error_found, file_name);
+}
+
+/* פונקציה עוטפת ל-encodeInstruction */
+int emit_instruction(InstParts *inst, code_conv_t *code, int code_count, int line_num, LabelNode **label_table_head, int *error_found, const char *file_name) {
+    return encode_instruction(inst, code, code_count, line_num, label_table_head, error_found, file_name);
 }

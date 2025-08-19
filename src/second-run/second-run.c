@@ -6,6 +6,7 @@
 #include "code_conversion.h"
 #include "../utils/base4.h"
 #include "../utils/utils.h"
+#include "../error-handler/error-handler.h"
 
 /* עוזר לעצב כתובת מיוחדת בבסיס 4 באורך 4 תווים */
 static void fmt_addr4(int addr, char out[5]) {
@@ -98,8 +99,11 @@ void exe_second_pass(
 
         /* חיפוש תווית */
         label = find_label(label_table, symbol_name);
-        /* אם התווית נמצאה */
-        if (!label) continue;
+        /* אם התווית לא נמצאה – זוהי שגיאה סמנטית (סמל לא מוגדר) */
+        if (!label) {
+            error_report_ex(ERR_SEV_ERROR, ERR_LABEL_UNDEFINED, base_filename, code[word_index].source_line_num, symbol_name);
+            continue;
+        }
 
         /* טיפול בהפניות חיצוניות ופנימיות */
         if (label->is_extern) {
@@ -121,6 +125,9 @@ void exe_second_pass(
                 char addr4[5];
                 fmt_addr4(entry_label->address, addr4);
                 fprintf(ent_file, "%s %s\n", entry_label->name, addr4);
+            } else if (!entry_label) {
+                /* .entry על סמל שלא הוגדר בקובץ – שגיאה */
+                error_report_ex(ERR_SEV_ERROR, ERR_ENTRY_UNDEFINED, base_filename, 0, entries[entry_index].name);
             }
         }
         /* סוגר את קובץ ה-.ent */
@@ -131,5 +138,5 @@ void exe_second_pass(
         fclose(ext_file);
 
     /* הודעת הצלחה  עבור המעבר השני */
-    printf("Second pass successful for %s\n", base_filename);
+    printf("Second pass completed for %s\n", base_filename);
 }

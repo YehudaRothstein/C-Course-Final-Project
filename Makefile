@@ -22,7 +22,7 @@ SRCS = \
 all: assembler
 
 assembler:
-	gcc $(FLAGS) $(SRCS) -o assembler
+	gcc $(FLAGS) $(SRCS) -o assembler 
 
 clean:
 	rm -f assembler

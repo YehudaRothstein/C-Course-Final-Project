@@ -11,6 +11,11 @@ void write_code_file(const char *out_filename, code_conv_t *code, int code_count
     int i;
     int d;
 
+    /* אם קיימות שגיאות קודמות, אין לייצר קובץ פלט */
+    if (error_get_error_count() > 0) {
+        return;
+    }
+
     get_basefile(out_filename, base_name, sizeof(base_name));
     {
         size_t cap = sizeof(ob_filename);

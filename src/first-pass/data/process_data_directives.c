@@ -110,8 +110,22 @@ static int handle_data_directive_data(
         if (*ptr == ',') { ptr++; continue; }
         {
             int value;
+            const char *tok_start = ptr;
             if (!parse_int_and_advance(&ptr, &value)) {
-                break; /* אין מספר חוקי – יוצאים מהלולאה */
+                /* לא מספר חוקי – דווח שגיאה על האיבר הבעייתי והתקדם עד הפסיק הבא */
+                char badtok[64];
+                size_t k = 0;
+                /* העתק את הטוקן הבעייתי (עד רווח/פסיק/סוף) */
+                while (*tok_start && !isspace((unsigned char)*tok_start) && *tok_start != ',' && k < sizeof(badtok) - 1) {
+                    badtok[k++] = *tok_start++;
+                }
+                badtok[k] = '\0';
+                error_report_ex(ERR_SEV_ERROR, ERR_DATA_NUMBER_INVALID, NULL, directive->src_line, badtok[0] ? badtok : "invalid token");
+                /* דילוג עד הפסיק הבא כדי להמשיך ניתוח איברים אחרים */
+                while (*ptr && *ptr != ',') ptr++;
+                if (*ptr == ',') ptr++;
+                /* ממשיכים כדי לאסוף שגיאות נוספות באותה שורה */
+                continue;
             }
             if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
                 error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".data exceedes memory size");
@@ -163,12 +177,7 @@ static int handle_data_directive_string(
 
     /* חיפוש אחר הציטוט השני */
     while (*p && *p != '"') {
-        /* בדיקת תו חוקי */
         unsigned char ch = (unsigned char)*p;
-        if (ch < 32 || ch > 126) {
-            error_report_ex(ERR_SEV_ERROR, ERR_STRING_BAD_CHAR, NULL, directive->src_line, NULL);
-            return 0;
-        }
         /* בדיקת גודל מפת הנתונים */
         if ((data_base_addr + *data_counter_ptr) >= MEMORY_SIZE) {
             error_report_ex(ERR_SEV_ERROR, ERR_MEMORY_OVERFLOW, NULL, directive->src_line, ".string exceeds memory size");
